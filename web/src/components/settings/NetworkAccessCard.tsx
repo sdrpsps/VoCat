@@ -44,7 +44,7 @@ export function NetworkAccessCard({
   const setCidrs = (next: string[]) => onChange({ allowedCidrs: next });
 
   return (
-    <div className="ui-card group relative overflow-hidden p-8 lg:col-span-2">
+    <div className="ui-card group relative overflow-hidden p-8">
       <CardDecor />
       <div className="relative z-10 mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
