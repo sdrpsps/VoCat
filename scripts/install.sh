@@ -23,7 +23,11 @@ set -euo pipefail
 # --- Publisher configuration -------------------------------------------------
 # Default GitHub repository in owner/name form. Publishers: set this to your
 # own repo, or override per-run with VOCAT_REPO.
-REPO="${VOCAT_REPO:-MengMengCode/VoCat}"
+REPO="${VOCAT_REPO:-sdrpsps/VoCat}"
+# Prefix public GitHub release URLs with this accelerator. An explicitly empty
+# VOCAT_GITHUB_PROXY disables acceleration. API requests and authentication
+# remain direct to GitHub; credentials are never forwarded to the accelerator.
+GITHUB_PROXY="${VOCAT_GITHUB_PROXY-https://ghfast.top}"
 
 INSTALL_DIR="/opt/vocat/bin"
 BINARY_PATH="${INSTALL_DIR}/vocat"
@@ -354,17 +358,32 @@ else
     CURL_DL_OPTS=(-fsSL)
 fi
 
+download_release_file() {
+    local url="$1" destination="$2"
+    if [ -n "$GITHUB_PROXY" ]; then
+        if curl "${CURL_DL_OPTS[@]}" --connect-timeout 15 --speed-time 30 --speed-limit 1024 \
+            -o "$destination" "${GITHUB_PROXY%/}/${url}"; then
+            return 0
+        fi
+        msg "加速下载失败，尝试 GitHub 直连 ..." "Accelerated download failed; trying GitHub directly ..."
+    fi
+    curl "${CURL_DL_OPTS[@]}" --connect-timeout 15 --speed-time 30 --speed-limit 1024 \
+        -o "$destination" "$url"
+}
+
 download_and_verify() {
     VOCAT_TMP=$(mktemp -d)
     trap 'rm -rf "$VOCAT_TMP"' EXIT
     local base="https://github.com/${REPO}/releases/download/v${TARGET_VERSION}"
     local asset="vocat-linux-${ARCH}"
-    if [ -n "$ARCH_FALLBACK" ] && ! curl -fsIL -o /dev/null "${base}/${asset}"; then
-        asset="vocat-linux-${ARCH_FALLBACK}"
-    fi
     msg "下载 $asset ..." "Downloading $asset ..."
-    curl "${CURL_DL_OPTS[@]}" -o "${VOCAT_TMP}/vocat" "${base}/${asset}" || die "下载二进制失败。" "Failed to download the binary."
-    curl -fsSL -o "${VOCAT_TMP}/SHA256SUMS" "${base}/SHA256SUMS" || die "下载 SHA256SUMS 失败。" "Failed to download SHA256SUMS."
+    if ! download_release_file "${base}/${asset}" "${VOCAT_TMP}/vocat"; then
+        [ -n "$ARCH_FALLBACK" ] || die "下载二进制失败。" "Failed to download the binary."
+        asset="vocat-linux-${ARCH_FALLBACK}"
+        msg "尝试 $asset ..." "Trying $asset ..."
+        download_release_file "${base}/${asset}" "${VOCAT_TMP}/vocat" || die "下载二进制失败。" "Failed to download the binary."
+    fi
+    download_release_file "${base}/SHA256SUMS" "${VOCAT_TMP}/SHA256SUMS" || die "下载 SHA256SUMS 失败。" "Failed to download SHA256SUMS."
 
     local expected actual
     # Match a line whose filename field equals the asset (with optional binary-mode * prefix).

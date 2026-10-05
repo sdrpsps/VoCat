@@ -49,7 +49,7 @@ CGO_ENABLED=0 go build -trimpath -o build/vocat ./cmd/vocat
 
 不要用尚未包含本分支 OIDC 改动的上游二进制覆盖当前版本。使用 Docker 时先设置以上 `VOCAT_OIDC_*` 变量和 secret，再运行 `docker compose up -d --build`；已有上游镜像不包含本次改动。SQLite 数据卷仍应持久化。
 
-使用 Linux 安装脚本时，先在权限为 `0600` 的 `/etc/vocat/env` 中配置以上变量；安装脚本不再生成初始密码，缺少必要 OIDC 配置时会在替换程序前停止。指定包含本次改动的 fork release（例如设置 `VOCAT_REPO=sdrpsps/VoCat`），不要默认下载不含本次改动的上游 release。
+使用 Linux 安装脚本时，先在权限为 `0600` 的 `/etc/vocat/env` 中配置以上变量；安装脚本不再生成初始密码，缺少必要 OIDC 配置时会在替换程序前停止。安装脚本默认使用 `sdrpsps/VoCat` 的 release，并通过 `https://ghfast.top` 加速二进制及 `SHA256SUMS` 下载，失败时自动回退到 GitHub 直连。可用 `VOCAT_REPO` 指定另一个兼容版本来源；显式设置 `VOCAT_GITHUB_PROXY=` 可禁用加速。GitHub API 请求及 token 不经过加速站。发布包含本次改动的 fork release 后再安装，避免使用不含 OIDC 功能的旧版 release。
 
 ## 升级与会话
 
@@ -70,3 +70,5 @@ HTTP 仅允许 loopback URL，生产环境必须使用 HTTPS。修改回调 URL 
 运行 `go test ./...` 和 `cd web && npm test && npm run build`。测试使用本地模拟 OIDC provider，覆盖正常登录、ID Token 校验失败、state/Cookie/过期回调、回调重放、会话身份、CSRF 和退出流程；这些测试不等同于真实 Pocket ID 的浏览器登录验收。
 
 实际部署后，从 VoCat 页面点击“使用 Pocket ID 登录”，确认返回指定页面并获得会话；再验证退出和拒绝未授权的 Pocket ID 用户。若看到登录失败提示，请确认 Client ID、secret、精确回调 URL 和客户端用户/组分配。
+
+本分支发布沿用对应的上游版本号，不因这些修改递增版本。后台只检查 `MengMengCode/VoCat` 的上游发布，发现新版本时提示及时合并上游；合并后保留 Pocket ID 接入，再构建并发布本分支。相同版本号的重构建包安装时使用 `bash install.sh --force`。

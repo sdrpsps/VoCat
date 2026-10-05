@@ -7,8 +7,8 @@
 // Trust model: GitHub TLS guarantees the channel; the repository owner controls
 // which assets are published; SHA256SUMS guards integrity. There is no GPG
 // signature verification — an accepted trade-off for a closed-network testing
-// tool. Both the CLI and authenticated web UI use this same verified replacement
-// path.
+// tool. The CLI uses this verified replacement path; the web UI checks
+// upstream releases and asks the fork maintainer to merge and rebuild.
 package update
 
 import (

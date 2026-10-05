@@ -69,25 +69,25 @@ Available features depend on the module firmware, USB composition, SIM/eSIM capa
 As root (including OpenWrt/Kwrt, where `sudo` is normally absent):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/VoCat/master/scripts/install.sh | bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh | bash
 ```
 
 From a normal user on a distribution with sudo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/VoCat/master/scripts/install.sh | sudo bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh | sudo bash
 ```
 
 Check the host's VoWiFi/XFRM prerequisites without installing VoCat:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/VoCat/master/scripts/install.sh | bash -s -- --check-env
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh | bash -s -- --check-env
 ```
 
 Install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/VoCat/master/scripts/install.sh -o install.sh
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh -o install.sh
 sudo bash install.sh 0.0.2
 ```
 
@@ -101,9 +101,15 @@ If your kernel cannot provide XFRM/IPsec and you only need non-VoWiFi features
 such as cellular SMS or data, install with `--skip-vowifi-check`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MengMengCode/VoCat/master/scripts/install.sh -o install.sh
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh -o install.sh
 sudo bash install.sh --skip-vowifi-check
 ```
+
+The installer downloads release binaries and checksums from `sdrpsps/VoCat` through
+`https://ghfast.top`, falling back to GitHub directly if acceleration fails.
+Set `VOCAT_GITHUB_PROXY` to an empty value to disable acceleration, or override
+`VOCAT_REPO` to select another compatible repository. Release metadata and
+GitHub authentication requests go directly to GitHub.
 
 The installer:
 
@@ -256,27 +262,25 @@ Profile switching and SMS submission use one-time confirmation buttons. The bot 
 
 ## Updating
 
-Check for a newer GitHub Release:
+The settings page checks releases from upstream `MengMengCode/VoCat`, regardless
+of `VOCAT_REPO`, and asks you to merge upstream when a newer release is available.
+Review and merge those changes into this fork, preserving its Pocket ID login,
+then build and publish this fork's binaries or container image before deploying.
+The web interface does not replace this fork with upstream binaries.
+
+Fork releases retain the corresponding upstream version number. The automatic
+patch-version workflow runs only in the upstream repository; this change does
+not increase the version number. When reinstalling a rebuilt fork release with
+the same version, use the installer's `--force` option:
 
 ```bash
-vocat update --check --repo MengMengCode/VoCat
+sudo bash install.sh --force
 ```
 
-Install the latest release:
-
-```bash
-sudo vocat update --repo MengMengCode/VoCat
-```
-
-The updater downloads the binary matching the current Linux architecture, verifies it with the published `SHA256SUMS`, replaces the executable atomically, and restarts the `vocat` systemd service when available.
-
-For Docker installations:
-
-```bash
-docker pull ghcr.io/mengmengcode/vocat:latest
-```
-
-Recreate the container after pulling the new image.
+The installer defaults to `sdrpsps/VoCat`. If using the CLI self-updater instead,
+select the fork explicitly with `vocat update --repo sdrpsps/VoCat` after publishing
+a compatible release. For Docker, build or pull the corresponding fork image and
+recreate the container.
 
 ## Development
 

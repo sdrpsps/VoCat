@@ -49,7 +49,6 @@ type Options struct {
 	Extensions          *extensions.Manager
 	ExportProxy         *exportproxy.Manager
 	DeveloperEnabled    bool
-	UpdateRepository    string
 	UpdateToken         string
 	HTTPS               *httpsmode.Manager
 }
@@ -78,13 +77,8 @@ type Server struct {
 	extensions                *extensions.Manager
 	exportProxy               *exportproxy.Manager
 	developerEnabled          bool
-	updateRepository          string
 	updateToken               string
 	updateCheck               func(context.Context, string, string, string) (update.CheckResult, error)
-	updateApply               func(context.Context, *slog.Logger, update.Options, bool) (update.CheckResult, error)
-	updateRestart             func(*slog.Logger) error
-	updateMu                  sync.Mutex
-	updateApplying            bool
 	https                     *httpsmode.Manager
 	netTraffic                *liveNetTracker
 	hostStats                 *hostStatsSampler
@@ -122,9 +116,6 @@ func New(options Options) (*Server, error) {
 	if options.MaxRequestBodyBytes <= 0 {
 		options.MaxRequestBodyBytes = 1 << 20
 	}
-	if strings.TrimSpace(options.UpdateRepository) == "" {
-		options.UpdateRepository = update.DefaultRepository
-	}
 
 	if options.OIDC != nil && options.OIDC.SecureCookies() {
 		options.SecureCookies = true
@@ -148,7 +139,6 @@ func New(options Options) (*Server, error) {
 		extensions:          options.Extensions,
 		exportProxy:         options.ExportProxy,
 		developerEnabled:    options.DeveloperEnabled,
-		updateRepository:    strings.TrimSpace(options.UpdateRepository),
 		updateToken:         strings.TrimSpace(options.UpdateToken),
 		https:               options.HTTPS,
 		netTraffic:          newLiveNetTracker(),
@@ -157,8 +147,6 @@ func New(options Options) (*Server, error) {
 		smsStorage:          make(map[string]device.SMSStorageUsage),
 		lookupPublicIP:      exportproxy.LookupPublicIP,
 		updateCheck:         update.CheckLatest,
-		updateApply:         update.ApplyLatest,
-		updateRestart:       update.RestartService,
 	}
 	server.cellularDataRuntime()
 	server.loadAccessConfig(context.Background())

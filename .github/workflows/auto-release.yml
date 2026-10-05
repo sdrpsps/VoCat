@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   check-and-release:
+    # Fork releases retain upstream version numbers; custom changes must not
+    # automatically create a new patch version. This job is upstream-only.
+    if: github.repository == 'MengMengCode/VoCat'
     name: Release after 500 changed code lines
     runs-on: ubuntu-latest
     timeout-minutes: 10

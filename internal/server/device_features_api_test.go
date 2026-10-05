@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -863,22 +862,19 @@ func TestHandleFixUSBNet(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateApplyIsSafeNoop(t *testing.T) {
+func TestHandleUpdateApplyRequiresUpstreamMerge(t *testing.T) {
 	server := &Server{logger: regionTestLogger()}
 	recorder := httptest.NewRecorder()
 	server.handleUpdateApply(recorder, httptest.NewRequest(http.MethodPost, "/apply", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d", recorder.Code)
-	}
-	if data := decodeData(t, recorder); data["applied"] != false {
-		t.Fatalf("update apply must be a no-op, got %v", data)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "upstream_merge_required") {
+		t.Fatalf("unsafe update response: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
 func TestHandleUpdateCheckUsesTrustedRepository(t *testing.T) {
+	t.Setenv("VOCAT_REPO", "sdrpsps/VoCat")
 	server := &Server{
-		logger:           regionTestLogger(),
-		updateRepository: update.DefaultRepository,
+		logger: regionTestLogger(),
 		updateCheck: func(_ context.Context, repo, token, current string) (update.CheckResult, error) {
 			if repo != update.DefaultRepository || token != "token" || current == "" {
 				t.Fatalf("check arguments = %q, %q, %q", repo, token, current)
@@ -898,57 +894,38 @@ func TestHandleUpdateCheckUsesTrustedRepository(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
 	}
 	data := decodeData(t, recorder)
-	if data["available"] != true || data["version"] != "9.9.9" || data["repository"] != update.DefaultRepository {
+	if data["available"] != true || data["version"] != "9.9.9" || data["repository"] != update.DefaultRepository || data["merge_required"] != true || data["release_notes"] != "release notes" {
 		t.Fatalf("check data = %#v", data)
+	}
+	if message, ok := data["message"].(string); !ok || message == "" || message == data["release_notes"] {
+		t.Fatalf("merge notice missing: %#v", data)
 	}
 }
 
-func TestHandleUpdateApplyInstallsFromTrustedRepository(t *testing.T) {
+func TestHandleUpdateApplyPreservesSessions(t *testing.T) {
 	database, err := store.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = database.Close() })
+	t.Cleanup(func() { database.Close() })
 	if err := database.EnsureOIDCAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	tokenHash := []byte("active-session")
-	if err := database.CreateSession(
-		context.Background(), 1, tokenHash, []byte("csrf"), time.Now().Add(time.Hour),
-	); err != nil {
+	if err := database.CreateSession(context.Background(), 1, tokenHash, []byte("csrf"), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{
-		store:            database,
-		logger:           regionTestLogger(),
-		updateRepository: update.DefaultRepository,
-		updateApply: func(_ context.Context, _ *slog.Logger, options update.Options, restart bool) (update.CheckResult, error) {
-			if options.Repo != update.DefaultRepository || restart {
-				t.Fatalf("apply options = %#v, restart = %v", options, restart)
-			}
-			return update.CheckResult{Applied: true, Latest: "9.9.9"}, nil
-		},
-	}
+	server := &Server{store: database, logger: regionTestLogger()}
 	recorder := httptest.NewRecorder()
 	server.handleUpdateApply(recorder, httptest.NewRequest(http.MethodPost, "/apply", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("update status=%d", recorder.Code)
 	}
-	data := decodeData(t, recorder)
-	if data["applied"] != true || data["version"] != "9.9.9" || data["reauthentication_required"] != true {
-		t.Fatalf("apply data = %#v", data)
+	if _, err := database.SessionByTokenHash(context.Background(), tokenHash); err != nil {
+		t.Fatalf("merge notice must not revoke sessions: %v", err)
 	}
-	if _, err := database.SessionByTokenHash(context.Background(), tokenHash); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("session must be revoked after update, got %v", err)
-	}
-	expired := map[string]bool{}
-	for _, cookie := range recorder.Result().Cookies() {
-		if cookie.MaxAge < 0 {
-			expired[cookie.Name] = true
-		}
-	}
-	if !expired[sessionCookieName] || !expired[csrfCookieName] {
-		t.Fatalf("auth cookies were not expired: %#v", recorder.Result().Cookies())
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatal("merge notice expired cookies")
 	}
 }
 

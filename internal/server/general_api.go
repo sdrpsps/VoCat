@@ -363,7 +363,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	if strings.TrimSpace(s.updateRepository) == "" || s.updateCheck == nil {
+	if s.updateCheck == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"data": map[string]any{
 				"available": false,
@@ -377,18 +377,18 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	result, err := s.updateCheck(
 		ctx,
-		s.updateRepository,
+		update.DefaultRepository,
 		s.updateToken,
 		buildinfo.Version,
 	)
 	if err != nil {
-		s.logger.Warn("check for updates failed", "repository", s.updateRepository, "error", err)
+		s.logger.Warn("check for updates failed", "repository", update.DefaultRepository, "error", err)
 		writeError(w, http.StatusBadGateway, "update_check_failed", err.Error())
 		return
 	}
-	message := ""
+	message := i18n.T("未发现更新的上游发布版本。")
 	if result.Available {
-		message = result.ReleaseNotes
+		message = i18n.T("检测到上游新版本，请及时合并上游，保留本分支的自定义功能。")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
@@ -396,7 +396,9 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 			"current_version": result.Current,
 			"version":         result.Latest,
 			"message":         message,
-			"repository":      s.updateRepository,
+			"release_notes":   result.ReleaseNotes,
+			"merge_required":  result.Available,
+			"repository":      update.DefaultRepository,
 			"is_docker":       runningInDocker(),
 		},
 	})
@@ -413,85 +415,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
-	if strings.TrimSpace(s.updateRepository) == "" || s.updateApply == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data": map[string]any{
-				"applied": false,
-				"message": i18n.T("未配置受信任的软件更新源；未执行任何更新。"),
-			},
-		})
-		return
-	}
-	if runningInDocker() {
-		writeError(w, http.StatusConflict, "container_update_required", "pull the latest container image and recreate the container")
-		return
-	}
-	s.updateMu.Lock()
-	if s.updateApplying {
-		s.updateMu.Unlock()
-		writeError(w, http.StatusConflict, "update_busy", "another update is already in progress")
-		return
-	}
-	s.updateApplying = true
-	s.updateMu.Unlock()
-	defer func() {
-		s.updateMu.Lock()
-		s.updateApplying = false
-		s.updateMu.Unlock()
-	}()
-
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	result, err := s.updateApply(ctx, s.logger, update.Options{
-		Repo:  s.updateRepository,
-		Token: s.updateToken,
-	}, false)
-	if err != nil {
-		s.logger.Error("apply update failed", "repository", s.updateRepository, "error", err)
-		writeError(w, http.StatusBadGateway, "update_apply_failed", err.Error())
-		return
-	}
-	if !result.Applied {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data": map[string]any{
-				"applied": false,
-				"version": result.Latest,
-				"message": "The installed version is already current.",
-			},
-		})
-		return
-	}
-	// A binary update changes the trusted server code underneath every active
-	// browser/API session. Revoke every durable token before scheduling the
-	// restart and expire this client's cookies so all users must authenticate
-	// against the newly installed version.
-	if err := s.store.DeleteAllSessions(r.Context()); err != nil {
-		s.logger.Error("revoke sessions after update failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "update_session_revocation_failed", "The update was installed, but active sessions could not be revoked; restart the service and sign in again.")
-		return
-	}
-	s.clearAuthCookies(w)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"applied":                   true,
-			"version":                   result.Latest,
-			"reauthentication_required": true,
-			"message":                   "Update verified and installed; all sessions were revoked and the service is restarting.",
-		},
-	})
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-	if s.updateRestart != nil {
-		restart := s.updateRestart
-		logger := s.logger
-		go func() {
-			time.Sleep(time.Second)
-			if err := restart(logger); err != nil {
-				logger.Error("restart after update failed", "error", err)
-			}
-		}()
-	}
+	writeError(w, http.StatusConflict, "upstream_merge_required", i18n.T("请先合并上游并重新构建此分支；不能直接用上游二进制覆盖本分支。"))
 }
 
 func formatDuration(duration time.Duration) string {

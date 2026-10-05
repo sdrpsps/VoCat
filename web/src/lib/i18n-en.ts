@@ -5,6 +5,12 @@
  * 富文本片段（嵌套链接/代码块的说明框）不走字典，在组件里按语言分支渲染。
  */
 export const EN_DICT: Record<string, string> = {
+  "检查上游版本": "Check upstream version",
+  "上游新版本:": "New upstream version:",
+  "查看上游差异，及时合并": "Review upstream changes and merge",
+  "检测到上游新版本，请及时合并上游，保留本分支的自定义功能。": "A new upstream version is available. Merge upstream changes while preserving this fork's custom features.",
+  "未发现更新的上游发布版本。": "No newer upstream release was found.",
+
   "使用 Pocket ID 安全登录": "Sign in securely with Pocket ID",
   "使用 Pocket ID 登录": "Sign in with Pocket ID",
   "Pocket ID 登录未完成，请重试。": "Pocket ID sign-in did not complete. Please try again.",

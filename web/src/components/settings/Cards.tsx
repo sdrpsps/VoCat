@@ -12,7 +12,7 @@ export interface UpdateInfo {
   hasUpdate?: boolean;
   latestVersion?: string;
   releaseNote?: string;
-  isDocker?: boolean;
+  mergeMessage?: string;
 }
 
 function CardDecor() {
@@ -48,16 +48,12 @@ export function SystemInfoCard({
   info,
   updateInfo,
   checkingUpdate,
-  applyingUpdate,
   onCheckUpdate,
-  onApplyUpdate,
 }: {
   info: SystemInfo;
   updateInfo: UpdateInfo | null;
   checkingUpdate: boolean;
-  applyingUpdate: boolean;
   onCheckUpdate: () => void;
-  onApplyUpdate: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -74,7 +70,7 @@ export function SystemInfoCard({
           <FieldRow label={t("版本")} value={info.version} monospace>
             <div className="flex items-center justify-end gap-3">
               <Button size="small" variant="primary" className="!border-0" loading={checkingUpdate} onClick={onCheckUpdate}>
-                {t("检查更新")}
+                {t("检查上游版本")}
               </Button>
               <span>{info.version || "Unknown"}</span>
             </div>
@@ -83,14 +79,15 @@ export function SystemInfoCard({
         {updateInfo?.hasUpdate ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/20 dark:bg-amber-500/10">
             <div className="mb-2 flex items-center gap-2 text-[13px] font-bold text-amber-800 dark:text-amber-200">
-              <AlertRegular /> {t("发现新版本:")} {updateInfo.latestVersion}
+              <AlertRegular /> {t("上游新版本:")} {updateInfo.latestVersion}
             </div>
+            <p className="mb-3 text-xs text-amber-800 dark:text-amber-200">{updateInfo.mergeMessage || t("检测到上游新版本，请及时合并上游，保留本分支的自定义功能。")}</p>
             <div className="mb-4 max-h-32 overflow-y-auto whitespace-pre-wrap pr-2 text-xs text-amber-700 dark:text-amber-300/80">
               {updateInfo.releaseNote || t("暂无更新说明")}
             </div>
-            <Button variant="warning" loading={applyingUpdate} onClick={onApplyUpdate} className="w-full !border-0">
-              {t("立即更新并重启")}
-            </Button>
+            <a href="https://github.com/sdrpsps/VoCat/compare/master...MengMengCode:master" target="_blank" rel="noopener noreferrer" className="block rounded-lg bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-amber-600">
+              {t("查看上游差异，及时合并")}
+            </a>
           </div>
         ) : null}
         <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/5">
