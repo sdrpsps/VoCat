@@ -49,7 +49,7 @@ CGO_ENABLED=0 go build -trimpath -o build/vocat ./cmd/vocat
 
 不要用尚未包含本分支 OIDC 改动的上游二进制覆盖当前版本。使用 Docker 时先设置以上 `VOCAT_OIDC_*` 变量和 secret，再运行 `docker compose up -d --build`；已有上游镜像不包含本次改动。SQLite 数据卷仍应持久化。
 
-使用 Linux 安装脚本时，无需手动编辑配置文件。缺少 OIDC 配置时，脚本会交互询问 Pocket ID URL / Issuer、Client ID、Callback URL 和 Client Secret。Secret 隐藏输入；confidential client 必须填写，public client 可以留空。输入须为单行，不含空白、引号或反斜杠（Pocket ID 自动生成的 secret 支持此格式）。配置会自动保存到权限为 `0600` 的 `/etc/vocat/env`，其他运行配置保留；后续升级沿用已有配置。
+使用 Linux 安装脚本时，无需手动编辑配置文件。缺少 OIDC 配置时，脚本会交互询问 Pocket ID URL / Issuer、Client ID、Callback URL 和 Client Secret。Secret 隐藏输入；confidential client 必须填写，public client 可以留空。输入须为单行，不含空白、引号或反斜杠（Pocket ID 自动生成的 secret 支持此格式）。配置会自动保存到权限为 `0600` 的 `/opt/vocat/data/env`，其他运行配置保留；后续升级沿用已有配置。配置与数据库位于同一数据目录。systemd 和 OpenWrt/procd 服务均读取新路径。
 
 下载脚本后在交互终端运行；同版本从上游切换到本分支时使用 `--force`：
 
