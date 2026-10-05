@@ -411,17 +411,6 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-5xl">
       <PageHeader title={t("系统设置")} subtitle={t("管理网关参数与运行信息")} />
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-white/10 dark:bg-white/5">
-          <h2 className="mb-3 text-lg font-bold">Pocket ID</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("登录和账户安全由 Pocket ID 管理。")}</p>
-        </section>
-        <SystemInfoCard
-          info={systemInfo}
-          updateInfo={updateInfo}
-          checkingUpdate={checkingUpdate}
-          onCheckUpdate={onCheckUpdate}
-        />
-
         <NetworkAccessCard
           value={security}
           clientIp={clientIp}
@@ -431,6 +420,13 @@ export default function SettingsPage() {
           onChange={(patch) => setSecurity((prev) => ({ ...prev, ...patch }))}
           onSave={onSaveSecurity}
         />
+        <SystemInfoCard
+          info={systemInfo}
+          updateInfo={updateInfo}
+          checkingUpdate={checkingUpdate}
+          onCheckUpdate={onCheckUpdate}
+        />
+
         <VoWiFiMTUCard />
         <SMSAutoClearCard
           enabled={smsAutoClear}

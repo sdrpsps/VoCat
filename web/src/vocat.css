@@ -1,7 +1,7 @@
 /* ==========================================================================
    vocat design system — ported 1:1 from the VoHive reference build.
    Light + dark themes, glassmorphism "ui-*" surfaces, sidebar, menu,
-   disclaimer, skeletons and keyframes. Plain CSS imported after Tailwind.
+   skeletons and keyframes. Plain CSS imported after Tailwind.
    ========================================================================== */
 
 /* ---- Keyframes (top-level so they are always emitted) ---- */
@@ -359,61 +359,6 @@ html.dark .sidebar-shell .sidebar-menu .vocat-menu-item:not(.is-active) { color:
 html.dark .glass-modal {
   background: rgba(30, 30, 40, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* ---- Disclaimer ---- */
-.disclaimer-overlay {
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.disclaimer-dialog { max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
-@supports (height: 100dvh) {
-  .disclaimer-dialog {
-    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-  }
-}
-.disclaimer-dialog-content { max-height: inherit; }
-.disclaimer-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
-.disclaimer-actions { flex-shrink: 0; }
-@media (max-width: 640px) {
-  .disclaimer-overlay {
-    align-items: stretch;
-    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  }
-  .disclaimer-dialog {
-    align-self: center;
-    max-height: calc(100vh - 24px);
-    margin-left: 0;
-    margin-right: 0;
-    padding: 18px;
-    border-radius: 20px;
-  }
-  @supports (height: 100dvh) {
-    .disclaimer-dialog {
-      max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    }
-  }
-  .disclaimer-icon { width: 44px; height: 44px; margin-bottom: 12px; border-radius: 14px; }
-  .disclaimer-icon svg { width: 24px; height: 24px; }
-  .disclaimer-title { margin-bottom: 14px; font-size: 20px; line-height: 1.35; }
-  .disclaimer-body { font-size: 13px; line-height: 1.6; }
-  .disclaimer-body > div { align-items: flex-start; }
-  .disclaimer-body > div + div { margin-top: 12px; }
-  .disclaimer-body > div > div:first-child { width: 22px; height: 22px; margin-right: 10px; }
-  .disclaimer-actions { margin-top: 14px; padding-top: 14px; }
-  .disclaimer-input-wrap { margin-bottom: 12px; }
-  .disclaimer-button-row { gap: 10px; }
-}
-@media (max-width: 420px) {
-  .disclaimer-icon { display: none; }
-  .disclaimer-title { margin-top: 2px; }
-  .disclaimer-button-row { flex-direction: column-reverse; }
-  .disclaimer-button-row > button { width: 100%; }
 }
 
 /* ---- SMS page ---- */

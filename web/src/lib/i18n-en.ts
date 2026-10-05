@@ -11,11 +11,9 @@ export const EN_DICT: Record<string, string> = {
   "检测到上游新版本，请及时合并上游，保留本分支的自定义功能。": "A new upstream version is available. Merge upstream changes while preserving this fork's custom features.",
   "未发现更新的上游发布版本。": "No newer upstream release was found.",
 
-  "使用 Pocket ID 安全登录": "Sign in securely with Pocket ID",
-  "使用 Pocket ID 登录": "Sign in with Pocket ID",
+  "使用安全密钥登录": "Sign in with a passkey",
   "Pocket ID 登录未完成，请重试。": "Pocket ID sign-in did not complete. Please try again.",
   "Pocket ID 暂不可用，请联系管理员。": "Pocket ID is unavailable. Please contact your administrator.",
-  "登录和账户安全由 Pocket ID 管理。": "Sign-in and account security are managed by Pocket ID.",
 
   "清空配置": "Clear configuration",
   "清空后将移除该渠道的账号、地址和凭据，其他选项恢复默认值。启用状态保持不变，点击“保存通知配置”后生效。": "This removes accounts, addresses and credentials and restores other options to defaults. The enabled state stays unchanged. Click Save notification settings to apply.",

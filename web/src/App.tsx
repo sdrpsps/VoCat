@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from "./store/auth";
 import { LanguageProvider } from "./lib/i18n";
 import { AuthenticatedShell } from "./components/shell/AuthenticatedShell";
 import { UnauthenticatedShell } from "./components/shell/UnauthenticatedShell";
-import { Disclaimer } from "./components/Disclaimer";
 import { MessageHost } from "./components/ui/message";
 import { ConfirmHost } from "./components/ui/MessageBox";
 import { LoadingScreen } from "./components/ui/LoadingScreen";
@@ -20,8 +19,6 @@ import SettingsPage from "./pages/SettingsPage";
 import ExtensionPage from "./pages/ExtensionPage";
 
 const THEME_KEY = "theme";
-const DISCLAIMER_KEY = "vocat_disclaimer_agreed_at";
-const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
 function useTheme() {
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -61,37 +58,7 @@ function LoginLayout({ isDark, onToggleTheme }: { isDark: boolean; onToggleTheme
 
 function AppRoot() {
   const { isDark, toggle } = useTheme();
-  const { ready, isAuthenticated } = useAuth();
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
-  const [firstTime, setFirstTime] = useState(true);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setShowDisclaimer(false);
-      return;
-    }
-    let ts: number | null = null;
-    try {
-      const raw = localStorage.getItem(DISCLAIMER_KEY);
-      ts = raw === null ? null : Number(raw);
-    } catch {
-      ts = null;
-    }
-    const expired = ts === null || Number.isNaN(ts) || Date.now() - ts >= SEVEN_DAYS;
-    if (expired) {
-      setFirstTime(ts === null || Number.isNaN(ts));
-      setShowDisclaimer(true);
-    }
-  }, [isAuthenticated]);
-
-  function agree() {
-    try {
-      localStorage.setItem(DISCLAIMER_KEY, String(Date.now()));
-    } catch {
-      /* ignore */
-    }
-    setShowDisclaimer(false);
-  }
+  const { ready } = useAuth();
 
   if (!ready) return <LoadingScreen />;
 
@@ -121,7 +88,6 @@ function AppRoot() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {showDisclaimer && <Disclaimer firstTime={firstTime} onAgree={agree} />}
     </div>
   );
 }

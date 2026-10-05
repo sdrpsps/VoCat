@@ -36,9 +36,6 @@ export default function LoginPage() {
             <p className="mt-3 text-sm tracking-wide text-gray-500 dark:text-gray-400">{t("高通模块专业测试工具")}</p>
           </div>
           <div className="relative z-10 space-y-6">
-            <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-              {t("使用 Pocket ID 安全登录")}
-            </p>
             {searchParams.has("error") && (
               <p role="alert" className="text-center text-sm text-red-600 dark:text-red-400">
                 {t("Pocket ID 登录未完成，请重试。")}
@@ -58,7 +55,7 @@ export default function LoginPage() {
               }}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0ea5e9] px-4 py-3 font-bold text-white shadow-sm transition-all duration-200 hover:bg-[#0284c7] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading ? t("加载中") : t("使用 Pocket ID 登录")}
+              {loading ? t("加载中") : t("使用安全密钥登录")}
               <ArrowRightRegular className="h-5 w-5" />
             </button>
           </div>
