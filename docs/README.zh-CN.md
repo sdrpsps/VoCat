@@ -1,3 +1,5 @@
+> 此分支仅支持 Pocket ID 登录，传统账号密码登录已移除。安装和认证配置请以 [Pocket ID 接入说明](POCKET_ID.md) 为准。
+
 <p align="center">
   <img src="../web/public/favicon.svg" width="96" alt="Vocat">
 </p>
@@ -107,7 +109,7 @@ sudo bash install.sh --skip-vowifi-check
 - 将 Vocat 安装到 `/opt/vocat`；
 - 创建具有 Vocat 所需硬件与网络访问权限的强化版 systemd 服务；
 - 将运行时配置存放在 `/etc/vocat/env`；
-- 首次安装时生成随机初始管理员密码。
+- 使用 Pocket ID 作为唯一登录方式。
 
 安装完成后打开：
 
@@ -133,9 +135,6 @@ http://<server-address>:7575
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -d -m 0755 /opt/vocat/bin /opt/vocat/data
 sudo install -m 0755 vocat-linux-amd64 /opt/vocat/bin/vocat
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | sudo /opt/vocat/bin/vocat bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 sudo env \
   VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db \
   /opt/vocat/bin/vocat serve
@@ -150,13 +149,6 @@ sudo env \
 ```bash
 docker pull ghcr.io/mengmengcode/vocat:latest
 
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | docker run --rm -i \
-  --user 0:0 \
-  -v vocat-data:/opt/vocat/data \
-  --entrypoint /opt/vocat/bin/vocat \
-  ghcr.io/mengmengcode/vocat:latest bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 
 docker run -d \
   --name vocat \
@@ -175,11 +167,6 @@ docker run -d \
 该模式有意赋予 Vocat 对主机设备和网络栈的广泛访问权限，请仅在受信任的 Linux 主机上使用。自动发现会识别受支持的 Quectel USB 模组（USB 厂商 ID `2c7c`），以及通过 Linux WWAN 子系统暴露的 PCIe/MHI 模组；它不能识别任意模组布局。仅用 `--device` 映射单个节点，例如 `/dev/ttyUSB2`、`/dev/cdc-wdm0` 或 `/dev/wwan0qmi0`，会将容器限定在这些固定节点上，无法提供完整的多设备或热插拔发现。
 
 GHCR 镜像发布为 `linux/amd64` 与 `linux/arm64`。
-
-> [!TIP]
-> **NAS / QNAP Container Station 部署说明**：
-> 在 QNAP QTS / QuTS hero（Container Station）等 NAS 操作系统上，自定义的非 root 管理员账号和卷隔离机制可能导致 Docker 命名卷（例如 `-v vocat-data:/opt/vocat/data`）在一次性的 `bootstrap-admin` 初始化和后台服务容器中解析为不同的隔离路径，从而在 Web 登录时出现“密码错误”。
-> 在 NAS 环境中，强烈建议初始化和运行时均以主机绝对路径的绑定挂载替代命名卷（例如 QNAP 上的 `-v /share/Container/vocat/data:/opt/vocat/data`），以保证 SQLite 数据库持久化存储的一致性。
 
 ### USB SIM 读卡器
 
@@ -208,7 +195,6 @@ Vocat 先从 `VOCAT_CONFIG` 读取可选的 JSON 配置文件，再应用 `VOCAT
 
 用户提供的 Apple 运营商配置包可通过 `vocat carrier import-ipcc` 转换为可审查、符合允许列表的运营商配置文件；参见 [docs/CARRIER_IPCC_IMPORT.md](CARRIER_IPCC_IMPORT.md)。
 
-管理员凭据仅存储在 SQLite 中。使用 `vocat bootstrap-admin` 对空数据库执行一次初始化；环境变量和 JSON 配置不能设置或覆盖管理员用户名或密码。
 
 请勿将 Telegram token、SMTP 密码、Webhook 密钥、SIM 凭据或其他私密数据存放在仓库中。请通过应用设置或受保护的环境文件来配置它们。
 

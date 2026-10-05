@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"vocat/internal/oidclogin"
 )
 
 const maxConfigBytes = 1 << 20
@@ -17,6 +19,7 @@ const maxConfigBytes = 1 << 20
 // Config contains the process-level settings shared by the HTTP and storage
 // layers. Environment variables override values loaded from VOCAT_CONFIG.
 type Config struct {
+	OIDC                oidclogin.Config
 	Address             string
 	DatabasePath        string
 	SessionTTL          time.Duration
@@ -26,21 +29,17 @@ type Config struct {
 }
 
 type fileConfig struct {
-	Address      *string `json:"address"`
-	DatabasePath *string `json:"database_path"`
-	// Retain the legacy keys only so upgrades do not reject an existing config
-	// file. They are deliberately ignored: administrator credentials are read
-	// exclusively from SQLite.
-	LegacyAdminUsername *string `json:"admin_username"`
-	LegacyAdminPassword *string `json:"admin_password"`
-	SessionTTL          *string `json:"session_ttl"`
-	SecureCookies       *bool   `json:"secure_cookies"`
-	ShutdownTimeout     *string `json:"shutdown_timeout"`
-	MaxRequestBodyBytes *int64  `json:"max_request_body_bytes"`
+	OIDC                *oidclogin.Config `json:"oidc"`
+	Address             *string           `json:"address"`
+	DatabasePath        *string           `json:"database_path"`
+	SessionTTL          *string           `json:"session_ttl"`
+	SecureCookies       *bool             `json:"secure_cookies"`
+	ShutdownTimeout     *string           `json:"shutdown_timeout"`
+	MaxRequestBodyBytes *int64            `json:"max_request_body_bytes"`
 }
 
 // Default returns the non-secret process configuration. Administrator
-// credentials are initialized separately and stored only in SQLite.
+// login is configured through Pocket ID OIDC.
 func Default() Config {
 	return Config{
 		Address:             "0.0.0.0:7575",
@@ -108,6 +107,9 @@ func loadFile(path string) (fileConfig, error) {
 }
 
 func applyFile(cfg *Config, values fileConfig) error {
+	if values.OIDC != nil {
+		cfg.OIDC = *values.OIDC
+	}
 	if values.Address != nil {
 		cfg.Address = *values.Address
 	}
@@ -144,6 +146,10 @@ func applyEnvironment(cfg *Config) error {
 		}
 	}
 
+	applyString("VOCAT_OIDC_ISSUER", &cfg.OIDC.Issuer)
+	applyString("VOCAT_OIDC_CLIENT_ID", &cfg.OIDC.ClientID)
+	applyString("VOCAT_OIDC_CLIENT_SECRET", &cfg.OIDC.ClientSecret)
+	applyString("VOCAT_OIDC_REDIRECT_URL", &cfg.OIDC.RedirectURL)
 	applyString("VOCAT_ADDR", &cfg.Address)
 	applyString("VOCAT_DATABASE_PATH", &cfg.DatabasePath)
 
@@ -181,6 +187,9 @@ func applyEnvironment(cfg *Config) error {
 // Validate rejects settings that would make the server unusable or weaken its
 // basic request limits.
 func (cfg Config) Validate() error {
+	if err := cfg.OIDC.Validate(); err != nil {
+		return err
+	}
 	host, portText, err := net.SplitHostPort(strings.TrimSpace(cfg.Address))
 	if err != nil {
 		return fmt.Errorf("address: %w", err)

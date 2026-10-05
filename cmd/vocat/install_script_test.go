@@ -17,7 +17,7 @@ func TestInstallerValidatesDatabaseBeforeReplacingBinary(t *testing.T) {
 		t.Fatal("installer main section not found")
 	}
 	main := script[mainStart:]
-	validateAt := strings.Index(main, `bootstrap_admin "${VOCAT_TMP}/vocat"`)
+	validateAt := strings.Index(main, `check_database "${VOCAT_TMP}/vocat"`)
 	installAt := strings.Index(main, "install_binary")
 	if validateAt < 0 {
 		t.Fatal("installer does not validate the database with the downloaded binary")

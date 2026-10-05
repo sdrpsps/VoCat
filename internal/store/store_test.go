@@ -18,13 +18,12 @@ func TestStorePersistsAdminAndSessions(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 
-	passwordHash := []byte("password-hash")
-	if err := database.SetAdmin(ctx, "admin", passwordHash); err != nil {
-		t.Fatalf("SetAdmin() error = %v", err)
+	if err := database.EnsureOIDCAdmin(ctx); err != nil {
+		t.Fatalf("EnsureOIDCAdmin() error = %v", err)
 	}
-	admin, err := database.AdminByUsername(ctx, "admin")
+	admin, err := database.CurrentAdmin(ctx)
 	if err != nil {
-		t.Fatalf("AdminByUsername() error = %v", err)
+		t.Fatalf("CurrentAdmin() error = %v", err)
 	}
 
 	tokenHash := bytes.Repeat([]byte{1}, 32)
@@ -47,7 +46,7 @@ func TestStorePersistsAdminAndSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionByTokenHash() error = %v", err)
 	}
-	if session.Admin.Username != "admin" || !bytes.Equal(session.CSRFHash, csrfHash) {
+	if session.Admin.Username != "pocket-id" || !bytes.Equal(session.CSRFHash, csrfHash) {
 		t.Fatalf("unexpected session: %+v", session)
 	}
 	if !session.ExpiresAt.Equal(expiresAt) {
@@ -63,7 +62,7 @@ func TestDeleteExpiredSessions(t *testing.T) {
 	}
 	defer database.Close()
 
-	if err := database.SetAdmin(ctx, "admin", []byte("hash")); err != nil {
+	if err := database.EnsureOIDCAdmin(ctx); err != nil {
 		t.Fatal(err)
 	}
 	admin, err := database.CurrentAdmin(ctx)

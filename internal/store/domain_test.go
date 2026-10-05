@@ -31,6 +31,9 @@ func TestMigrationFromAuthenticationSchema(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := raw.ExecContext(ctx, `INSERT INTO sessions(token_hash, admin_id, csrf_hash, expires_at, created_at) VALUES (X'1234', 1, X'5678', 9999999999, 100)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := raw.ExecContext(ctx, `PRAGMA user_version = 1`); err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +46,18 @@ func TestMigrationFromAuthenticationSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy admin missing after migration: %v", err)
 	}
-	if admin.Username != "legacy-admin" || !bytes.Equal(admin.PasswordHash, []byte{1, 2}) {
+	if admin.Username != "legacy-admin" {
 		t.Fatalf("legacy admin changed during migration: %+v", admin)
+	}
+	var passwordColumns, sessionCount int
+	if err := database.db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('admins') WHERE name='password_hash'`).Scan(&passwordColumns); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions`).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if passwordColumns != 0 || sessionCount != 0 {
+		t.Fatalf("legacy passwords or sessions retained: columns=%d sessions=%d", passwordColumns, sessionCount)
 	}
 	var version int
 	if err := database.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {

@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 25
+const schemaVersion = 26
 
 var ErrNotFound = errors.New("store: not found")
 
@@ -26,19 +26,21 @@ type Store struct {
 }
 
 type Admin struct {
-	ID           int64
-	Username     string
-	PasswordHash []byte
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID        int64
+	Username  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type Session struct {
-	TokenHash []byte
-	CSRFHash  []byte
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	Admin     Admin
+	OIDCIssuer   string
+	OIDCSubject  string
+	OIDCUsername string
+	TokenHash    []byte
+	CSRFHash     []byte
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+	Admin        Admin
 }
 
 // Open creates the parent directory, opens SQLite, applies safety pragmas and
@@ -129,8 +131,12 @@ func migrate(ctx context.Context, db *sql.DB) error {
 					(nextVersion == 16 && strings.Contains(statement, "ADD COLUMN sim_pin")) ||
 					(nextVersion == 19 && strings.Contains(statement, "ADD COLUMN")) ||
 					(nextVersion == 23 && strings.Contains(statement, "ADD COLUMN")) ||
-					(nextVersion == 24 && strings.Contains(statement, "ADD COLUMN mbn_profile"))
+					(nextVersion == 24 && strings.Contains(statement, "ADD COLUMN mbn_profile")) ||
+					(nextVersion == 26 && strings.Contains(statement, "ADD COLUMN oidc_"))
 				if duplicateAdditiveColumn && strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+					continue
+				}
+				if nextVersion == 26 && strings.Contains(statement, "DROP COLUMN password_hash") && strings.Contains(strings.ToLower(err.Error()), "no such column") {
 					continue
 				}
 				_ = tx.Rollback()
@@ -171,18 +177,10 @@ func (s *Store) Ready(ctx context.Context) error {
 
 func (s *Store) CurrentAdmin(ctx context.Context) (Admin, error) {
 	return scanAdmin(s.db.QueryRowContext(ctx, `
-		SELECT id, username, password_hash, created_at, updated_at
+		SELECT id, username, created_at, updated_at
 		FROM admins
 		WHERE id = 1
 	`))
-}
-
-func (s *Store) AdminByUsername(ctx context.Context, username string) (Admin, error) {
-	return scanAdmin(s.db.QueryRowContext(ctx, `
-		SELECT id, username, password_hash, created_at, updated_at
-		FROM admins
-		WHERE username = ?
-	`, username))
 }
 
 type rowScanner interface {
@@ -196,7 +194,6 @@ func scanAdmin(row rowScanner) (Admin, error) {
 	err := row.Scan(
 		&admin.ID,
 		&admin.Username,
-		&admin.PasswordHash,
 		&createdAt,
 		&updatedAt,
 	)
@@ -209,36 +206,6 @@ func scanAdmin(row rowScanner) (Admin, error) {
 	admin.CreatedAt = time.Unix(createdAt, 0).UTC()
 	admin.UpdatedAt = time.Unix(updatedAt, 0).UTC()
 	return admin, nil
-}
-
-// SetAdmin inserts or replaces the single configured administrator and
-// atomically revokes all existing sessions.
-func (s *Store) SetAdmin(ctx context.Context, username string, passwordHash []byte) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin admin update: %w", err)
-	}
-	defer tx.Rollback()
-
-	now := time.Now().UTC().Unix()
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO admins (id, username, password_hash, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			username = excluded.username,
-			password_hash = excluded.password_hash,
-			updated_at = excluded.updated_at
-	`, username, passwordHash, now, now)
-	if err != nil {
-		return fmt.Errorf("set admin: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions"); err != nil {
-		return fmt.Errorf("revoke sessions after admin update: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit admin update: %w", err)
-	}
-	return nil
 }
 
 func (s *Store) DeleteAllSessions(ctx context.Context) error {
@@ -278,6 +245,7 @@ func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash []byte) (Sessi
 			s.csrf_hash,
 			s.expires_at,
 			s.created_at,
+ s.oidc_issuer, s.oidc_subject, s.oidc_username,
 			a.id,
 			a.username,
 			a.created_at,
@@ -290,6 +258,7 @@ func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash []byte) (Sessi
 		&session.CSRFHash,
 		&expiresAt,
 		&createdAt,
+		&session.OIDCIssuer, &session.OIDCSubject, &session.OIDCUsername,
 		&session.Admin.ID,
 		&session.Admin.Username,
 		&adminCreatedAt,

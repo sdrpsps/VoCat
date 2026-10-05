@@ -909,7 +909,7 @@ func TestHandleUpdateApplyInstallsFromTrustedRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	if err := database.SetAdmin(context.Background(), "admin", []byte("hash")); err != nil {
+	if err := database.EnsureOIDCAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	tokenHash := []byte("active-session")

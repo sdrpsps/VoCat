@@ -30,6 +30,7 @@ import (
 	"vocat/internal/httpsmode"
 	"vocat/internal/loghub"
 	"vocat/internal/modem"
+	"vocat/internal/oidclogin"
 	"vocat/internal/pcsc"
 	"vocat/internal/server"
 	"vocat/internal/store"
@@ -383,11 +384,9 @@ func main() {
 			logger.Error("develop failed", "error", err)
 			os.Exit(2)
 		}
-	case "bootstrap-admin":
-		// Installer-only command. The password is read from stdin so it never
-		// appears in argv, an environment file, or process listings.
-		if err := runBootstrapAdmin(rest); err != nil {
-			logger.Error("bootstrap admin failed", "error", err)
+	case "database-check":
+		if err := runDatabaseCheck(rest); err != nil {
+			logger.Error("database check failed", "error", err)
 			os.Exit(1)
 		}
 	case "help", "-h", "--help":
@@ -475,19 +474,20 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 		logger.Info("developer mode is off; plugin system disabled")
 	}
 
+	oidcProvider, err := oidclogin.New(startupContext, cfg.OIDC)
+	if err != nil {
+		return fmt.Errorf("configure Pocket ID: %w", err)
+	}
+	if err := database.EnsureOIDCAdmin(startupContext); err != nil {
+		return err
+	}
 	authService, err := auth.New(database, auth.Options{
+		OIDCIssuer: cfg.OIDC.Issuer,
 		SessionTTL: cfg.SessionTTL,
 	})
 	if err != nil {
 		return err
 	}
-	if _, adminErr := database.CurrentAdmin(startupContext); adminErr != nil {
-		if errors.Is(adminErr, store.ErrNotFound) {
-			return errors.New("administrator is not initialized; run vocat bootstrap-admin before starting the service")
-		}
-		return fmt.Errorf("read administrator: %w", adminErr)
-	}
-
 	cardReaders := pcsc.New()
 	deviceLogger := logger.With("category", "hardware")
 	deviceManager, err := device.NewManager(device.Options{
@@ -581,6 +581,7 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 	}()
 
 	handler, err := server.New(server.Options{
+		OIDC:                oidcProvider,
 		Store:               database,
 		Auth:                authService,
 		Devices:             deviceManager,

@@ -23,6 +23,7 @@ import (
 	"vocat/internal/extensions"
 	"vocat/internal/httpsmode"
 	"vocat/internal/loghub"
+	"vocat/internal/oidclogin"
 	"vocat/internal/store"
 	"vocat/internal/update"
 	"vocat/internal/vowifi"
@@ -35,6 +36,7 @@ const (
 )
 
 type Options struct {
+	OIDC                *oidclogin.Provider
 	Store               *store.Store
 	Auth                *auth.Service
 	Devices             DeviceController
@@ -54,6 +56,8 @@ type Options struct {
 
 // Server is the single HTTP handler for the JSON API and embedded SPA.
 type Server struct {
+	oidc                      *oidclogin.Provider
+	oidcFlows                 oidcFlows
 	store                     *store.Store
 	auth                      *auth.Service
 	devices                   DeviceController
@@ -71,7 +75,6 @@ type Server struct {
 	websheets                 *websheetManager
 	accessMu                  sync.RWMutex
 	access                    parsedAccessConfig
-	loginLimiter              *loginRateLimiter
 	extensions                *extensions.Manager
 	exportProxy               *exportproxy.Manager
 	developerEnabled          bool
@@ -123,7 +126,11 @@ func New(options Options) (*Server, error) {
 		options.UpdateRepository = update.DefaultRepository
 	}
 
+	if options.OIDC != nil && options.OIDC.SecureCookies() {
+		options.SecureCookies = true
+	}
 	server := &Server{
+		oidc:                options.OIDC,
 		store:               options.Store,
 		auth:                options.Auth,
 		devices:             options.Devices,
@@ -138,7 +145,6 @@ func New(options Options) (*Server, error) {
 		maxRequestBodyBytes: options.MaxRequestBodyBytes,
 		startedAt:           time.Now().UTC(),
 		websheets:           newWebsheetManager(),
-		loginLimiter:        newLoginRateLimiter(),
 		extensions:          options.Extensions,
 		exportProxy:         options.ExportProxy,
 		developerEnabled:    options.DeveloperEnabled,
@@ -163,7 +169,9 @@ func New(options Options) (*Server, error) {
 	mux.HandleFunc("/readyz", server.handleReadiness)
 	mux.HandleFunc("/metrics", server.handleMetrics)
 	mux.HandleFunc("/api/health", server.handleHealth)
-	mux.HandleFunc("/api/auth/login", server.handleLogin)
+	mux.HandleFunc("/api/auth/config", server.handleAuthConfig)
+	mux.HandleFunc("/api/auth/oidc/start", server.handleOIDCStart)
+	mux.HandleFunc("/api/auth/oidc/callback", server.handleOIDCCallback)
 	mux.HandleFunc("/api/auth/session", server.handleSession)
 	mux.HandleFunc("/api/auth/logout", server.handleLogout)
 	mux.HandleFunc("/api", server.handleAPI)
@@ -229,67 +237,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			"time":     time.Now().UTC().Format(time.RFC3339),
 		},
 	})
-}
-
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	var request struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := s.decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-
-	limiterKey := s.loginKey(r, request.Username)
-	if retryAfter, locked := s.loginLimiter.checkLocked(limiterKey); locked {
-		s.auditAuth(r, request.Username, "locked")
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retryAfter.Seconds())+1))
-		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed login attempts; please try again later")
-		return
-	}
-
-	credentials, err := s.auth.Login(r.Context(), request.Username, request.Password)
-	if errors.Is(err, auth.ErrInvalidCredentials) {
-		lockout, newlyLocked := s.loginLimiter.recordFailure(limiterKey)
-		s.auditAuth(r, request.Username, "failure")
-		if newlyLocked {
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(lockout.Seconds())))
-			writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed login attempts; please try again later")
-			return
-		}
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-		return
-	}
-	if err != nil {
-		s.logger.Error("login failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred")
-		return
-	}
-
-	s.loginLimiter.recordSuccess(limiterKey)
-	s.auditAuth(r, credentials.Principal.Username, "success")
-	s.setAuthCookies(w, credentials.SessionToken, credentials.CSRFToken, credentials.ExpiresAt)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{
-			"user":          credentials.Principal,
-			"csrf_token":    credentials.CSRFToken,
-			"expires_at":    credentials.ExpiresAt.Format(time.RFC3339),
-			"authenticated": true,
-			"status":        "ok",
-		},
-	})
-}
-
-// loginKey builds the rate-limit key from the client address and username so
-// brute-force attempts against one account from one source are throttled.
-func (s *Server) loginKey(r *http.Request, username string) string {
-	address := s.currentAccessConfig().clientIP(r)
-	return address.String() + "|" + strings.ToLower(strings.TrimSpace(username))
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {

@@ -1,12 +1,7 @@
 # VoCat Docker Compose deployment.
 #
-# First-time setup (password is read from stdin and stored only in SQLite):
-#   docker compose pull
-#   read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-#   printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | docker compose run --rm -T \
-#     --entrypoint /opt/vocat/bin/vocat vocat bootstrap-admin
-#   unset VOCAT_BOOTSTRAP_PASSWORD
-#   docker compose up -d
+# Configure VOCAT_OIDC_* in a protected .env file first; see docs/POCKET_ID.md.
+# Then run docker compose up -d. There is no local administrator bootstrap.
 #
 # Build locally from this repo instead of using the GHCR image:
 #   docker compose up -d --build
@@ -48,14 +43,17 @@ services:
       # Marks the process as containerized: the web UI then advertises
       # "pull new image" instead of attempting an in-place binary update.
       VOCAT_CONTAINER: docker
-      # VOCAT_ADDR / VOCAT_DATABASE_PATH are set in the Dockerfile. Admin
-      # credentials are stored only in SQLite and are not process environment.
+      VOCAT_OIDC_ISSUER: ${VOCAT_OIDC_ISSUER:?Configure Pocket ID issuer}
+      VOCAT_OIDC_CLIENT_ID: ${VOCAT_OIDC_CLIENT_ID:?Configure Pocket ID client ID}
+      VOCAT_OIDC_CLIENT_SECRET: ${VOCAT_OIDC_CLIENT_SECRET:-}
+      VOCAT_OIDC_REDIRECT_URL: ${VOCAT_OIDC_REDIRECT_URL:?Configure the exact public callback URL}
+      # VOCAT_ADDR / VOCAT_DATABASE_PATH are set in the Dockerfile.
 
     volumes:
       # SQLite database + persistent state.
       # Note for NAS (e.g. QNAP Container Station / Synology): replace named volume
       # with a host absolute path (e.g. /share/Container/vocat/data:/opt/vocat/data)
-      # to avoid volume isolation issues between bootstrap-admin and runtime.
+      # to keep runtime persistence at an explicit, stable host path.
       - vocat-data:/opt/vocat/data
       # Required for modem, MHI/WWAN and PC/SC USB-reader discovery, including
       # devices added after the container starts.

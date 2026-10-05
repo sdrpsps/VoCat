@@ -230,7 +230,7 @@ func TestSMSExportAuthenticatedRoute(t *testing.T) {
 	if response.StatusCode != http.StatusUnauthorized || response.Header.Get("Content-Disposition") != "" {
 		t.Fatalf("unauthenticated status=%d headers=%v", response.StatusCode, response.Header)
 	}
-	response, err = app.client.Post(app.server.URL+"/api/auth/login", "application/json", strings.NewReader(`{"username":"admin","password":"correct-password"}`))
+	response = app.login(t)
 	if err != nil {
 		t.Fatal(err)
 	}

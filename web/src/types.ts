@@ -10,13 +10,6 @@ export interface Session {
   csrfToken?: string;
 }
 
-export interface LoginResponse {
-  status: ApiStatus;
-  username?: string;
-  role?: string;
-  expiresAt?: string;
-  csrfToken?: string;
-}
 
 export interface ApiErrorBody {
   status?: string;

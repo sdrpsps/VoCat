@@ -3,13 +3,12 @@ import { AlertRegular, CheckmarkRegular } from "@fluentui/react-icons";
 import { api, apiMessage, getSecuritySettings, updateSecuritySettings } from "../api";
 import type { DeveloperSettings, HTTPSSettings, NotificationSettings, SecuritySettings, SMSSettings, SystemInfo } from "../types";
 import { Button, PageHeader, confirmDialog, message } from "../components/ui";
-import { CardDecor, CardIcon, CardTitle, SecurityCard, SystemInfoCard } from "../components/settings/Cards";
-import type { PasswordForm, UpdateInfo } from "../components/settings/Cards";
+import { CardDecor, CardIcon, CardTitle, SystemInfoCard } from "../components/settings/Cards";
+import type { UpdateInfo } from "../components/settings/Cards";
 import { NetworkAccessCard } from "../components/settings/NetworkAccessCard";
 import type { NetworkAccessForm } from "../components/settings/NetworkAccessCard";
 import { SegmentedTabs } from "../components/settings/controls";
 import { useI18n } from "../lib/i18n";
-import { useAuth } from "../store/auth";
 import {
   buildBarkPayload,
   buildEmailPayload,
@@ -33,7 +32,6 @@ import { SMSAutoClearCard } from "../components/settings/SMSAutoClearCard";
 
 import { VoWiFiMTUCard } from "../components/settings/VoWiFiMTUCard";
 
-const EMPTY_PASSWORD: PasswordForm = { oldPassword: "", newPassword: "", confirmPassword: "" };
 
 const NOTIFY_TABS = [
   { key: "telegram", label: "Telegram Bot" },
@@ -50,10 +48,8 @@ const EMPTY_SYSTEM_INFO: SystemInfo = { version: "", buildTime: "", config: "" }
 
 const EMPTY_SECURITY: NetworkAccessForm = { mode: "internal", allowedCidrs: [], trustProxyHeaders: false };
 export default function SettingsPage() {
-  const { refresh } = useAuth();
   const { t, lang } = useI18n();
   const [systemInfo, setSystemInfo] = useState<SystemInfo>(EMPTY_SYSTEM_INFO);
-  const [password, setPassword] = useState<PasswordForm>(EMPTY_PASSWORD);
   const [forms, setForms] = useState<NotifyForms>(defaultNotifyForms);
   const [clearedChannels, setClearedChannels] = useState<ClearableNotificationChannel[]>([]);
   const clearChannel = async (channel: ClearableNotificationChannel) => {
@@ -75,7 +71,6 @@ export default function SettingsPage() {
   const [testingEmail, setTestingEmail] = useState(false);
   const [testingWecom, setTestingWecom] = useState(false);
   const [testingLark, setTestingLark] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -285,32 +280,6 @@ export default function SettingsPage() {
     }
   }, [security, applySecurity]);
 
-  const onChangePassword = useCallback(async () => {
-    if (password.newPassword !== password.confirmPassword) {
-      message.error(t("两次输入的新密码不一致"));
-      return;
-    }
-    setChangingPassword(true);
-    try {
-      await api("/settings/password", {
-        method: "POST",
-        body: {
-          oldPassword: password.oldPassword,
-          newPassword: password.newPassword,
-          confirmPassword: password.confirmPassword,
-        },
-      });
-      message.success(t("密码已更新，请重新登录"));
-      setPassword(EMPTY_PASSWORD);
-      // vocat 后端改密成功后会注销现有会话，需要重新登录
-      window.setTimeout(() => void refresh(), 1200);
-    } catch (error) {
-      message.error(apiMessage(error) || t("密码更新失败"));
-    } finally {
-      setChangingPassword(false);
-    }
-  }, [password, refresh]);
-
   const onSaveNotifications = useCallback(async () => {
     if (savingNotif) return;
     setSavingNotif(true);
@@ -486,12 +455,10 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-5xl">
       <PageHeader title={t("系统设置")} subtitle={t("管理网关参数与运行信息")} />
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <SecurityCard
-          value={password}
-          onChange={(patch) => setPassword((prev) => ({ ...prev, ...patch }))}
-          loading={changingPassword}
-          onSubmit={onChangePassword}
-        />
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-white/10 dark:bg-white/5">
+          <h2 className="mb-3 text-lg font-bold">Pocket ID</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("登录和账户安全由 Pocket ID 管理。")}</p>
+        </section>
         <SystemInfoCard
           info={systemInfo}
           updateInfo={updateInfo}

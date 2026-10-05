@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"vocat/internal/auth"
 	"vocat/internal/buildinfo"
 	"vocat/internal/developer"
 	"vocat/internal/i18n"
@@ -53,8 +52,6 @@ func (s *Server) routeGeneralAPI(w http.ResponseWriter, r *http.Request) bool {
 		s.handleUpdateCheck(w, r)
 	case "system/update/apply":
 		s.handleUpdateApply(w, r)
-	case "settings/password":
-		s.handlePasswordChange(w, r)
 	case "settings/preferences":
 		s.handleUIPreferences(w, r)
 	case "settings/https":
@@ -495,57 +492,6 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-}
-
-func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	var request struct {
-		OldPassword     string `json:"old_password"`
-		NewPassword     string `json:"new_password"`
-		ConfirmPassword string `json:"confirm_password"`
-	}
-	if err := s.decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	if request.NewPassword != request.ConfirmPassword {
-		writeError(w, http.StatusBadRequest, "password_mismatch", "new password and confirmation do not match")
-		return
-	}
-	sessionToken, ok := s.sessionToken(w, r)
-	if !ok {
-		return
-	}
-	session, err := s.auth.Authenticate(r.Context(), sessionToken)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
-		return
-	}
-	if err := s.auth.ChangePassword(
-		r.Context(),
-		session.Principal.Username,
-		request.OldPassword,
-		request.NewPassword,
-	); err != nil {
-		switch {
-		case errors.Is(err, auth.ErrInvalidCredentials):
-			writeError(w, http.StatusUnauthorized, "invalid_credentials", "current password is incorrect")
-		case errors.Is(err, auth.ErrEmptyPassword):
-			writeError(w, http.StatusBadRequest, "weak_password", err.Error())
-		case strings.Contains(err.Error(), "must differ"):
-			writeError(w, http.StatusBadRequest, "password_reused", err.Error())
-		default:
-			s.logger.Error("password change failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred")
-		}
-		return
-	}
-	s.clearAuthCookies(w)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": map[string]any{"changed": true, "reauthentication_required": true},
-	})
 }
 
 func formatDuration(duration time.Duration) string {

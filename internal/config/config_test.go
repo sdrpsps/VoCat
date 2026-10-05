@@ -8,6 +8,7 @@ import (
 )
 
 var configEnvironment = []string{
+	"VOCAT_OIDC_ISSUER", "VOCAT_OIDC_CLIENT_ID", "VOCAT_OIDC_CLIENT_SECRET", "VOCAT_OIDC_REDIRECT_URL",
 	"VOCAT_CONFIG",
 	"VOCAT_ADDR",
 	"VOCAT_DATABASE_PATH",
@@ -86,7 +87,7 @@ func TestLoadRejectsUnknownJSONField(t *testing.T) {
 	}
 }
 
-func TestLoadIgnoresLegacyAdministratorConfiguration(t *testing.T) {
+func TestLoadRejectsLegacyAdministratorConfiguration(t *testing.T) {
 	clearConfigEnvironment(t)
 	path := filepath.Join(t.TempDir(), "vocat.json")
 	if err := os.WriteFile(path, []byte(`{
@@ -99,8 +100,8 @@ func TestLoadIgnoresLegacyAdministratorConfiguration(t *testing.T) {
 	t.Setenv("VOCAT_ADMIN_USERNAME", "environment-admin")
 	t.Setenv("VOCAT_ADMIN_PASSWORD", "environment-password")
 
-	if _, err := Load(); err != nil {
-		t.Fatalf("Load() rejected ignored legacy credentials: %v", err)
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted removed local credentials")
 	}
 }
 
@@ -110,5 +111,23 @@ func TestLoadRejectsInvalidEnvironment(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() unexpectedly accepted invalid duration")
+	}
+}
+
+func TestLoadOIDCEnvironmentOverridesFile(t *testing.T) {
+	clearConfigEnvironment(t)
+	path := filepath.Join(t.TempDir(), "vocat.json")
+	if err := os.WriteFile(path, []byte(`{"oidc":{"issuer":"https://auth.example","client_id":"file-client","redirect_url":"https://vocat.example/api/auth/oidc/callback"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VOCAT_CONFIG", path)
+	t.Setenv("VOCAT_OIDC_CLIENT_ID", "environment-client")
+	t.Setenv("VOCAT_OIDC_CLIENT_SECRET", "test-secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OIDC.ClientID != "environment-client" || cfg.OIDC.ClientSecret != "test-secret" || cfg.OIDC.Issuer != "https://auth.example" {
+		t.Fatal("OIDC config precedence incorrect")
 	}
 }

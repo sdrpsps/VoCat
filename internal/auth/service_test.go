@@ -3,185 +3,105 @@ package auth
 import (
 	"context"
 	"errors"
-	"strings"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
-
+	"vocat/internal/oidclogin"
 	"vocat/internal/store"
 )
 
+const testIssuer = "https://test.pocket-id.example"
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
-	database, err := store.Open(context.Background(), ":memory:")
+	database, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "vocat.db"))
 	if err != nil {
-		t.Fatalf("store.Open() error = %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = database.Close()
-	})
-	service, err := New(database, Options{
-		SessionTTL: time.Hour,
-		BcryptCost: bcrypt.MinCost,
-	})
+	t.Cleanup(func() { database.Close() })
+	service, err := New(database, Options{SessionTTL: time.Hour, OIDCIssuer: testIssuer})
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if err := service.EnsureAdmin(context.Background(), "admin", "correct-password"); err != nil {
-		t.Fatalf("EnsureAdmin() error = %v", err)
+		t.Fatal(err)
 	}
 	return service
 }
 
-func TestLoginAuthenticateCSRFAndLogout(t *testing.T) {
-	ctx := context.Background()
+func TestOIDCAuthenticateCSRFAndLogout(t *testing.T) {
 	service := newTestService(t)
-
-	if _, err := service.Login(ctx, "admin", "wrong-password"); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("Login() error = %v, want ErrInvalidCredentials", err)
-	}
-	credentials, err := service.Login(ctx, "admin", "correct-password")
+	ctx := context.Background()
+	identity := oidclogin.Identity{Issuer: testIssuer, Subject: "alice-id", Username: "alice"}
+	credentials, err := service.LoginOIDC(ctx, identity)
 	if err != nil {
-		t.Fatalf("Login() error = %v", err)
+		t.Fatal(err)
 	}
-
 	session, err := service.Authenticate(ctx, credentials.SessionToken)
-	if err != nil {
-		t.Fatalf("Authenticate() error = %v", err)
-	}
-	if session.Principal.Username != "admin" {
-		t.Fatalf("Principal = %+v", session.Principal)
+	if err != nil || session.Principal.Username != "alice" {
+		t.Fatalf("session=%+v err=%v", session, err)
 	}
 	if _, err := service.ValidateCSRF(ctx, credentials.SessionToken, "wrong"); !errors.Is(err, ErrInvalidCSRF) {
-		t.Fatalf("ValidateCSRF() error = %v, want ErrInvalidCSRF", err)
+		t.Fatalf("CSRF error=%v", err)
 	}
 	if _, err := service.ValidateCSRF(ctx, credentials.SessionToken, credentials.CSRFToken); err != nil {
-		t.Fatalf("ValidateCSRF() error = %v", err)
+		t.Fatal(err)
 	}
-	_, csrfToken, err := service.CSRFToken(
-		ctx,
-		credentials.SessionToken,
-		credentials.CSRFToken,
-	)
-	if err != nil {
-		t.Fatalf("CSRFToken() error = %v", err)
+	_, token, err := service.CSRFToken(ctx, credentials.SessionToken, credentials.CSRFToken)
+	if err != nil || token != credentials.CSRFToken {
+		t.Fatal("valid CSRF token rotated")
 	}
-	if csrfToken != credentials.CSRFToken {
-		t.Fatal("CSRFToken() rotated an already valid token")
-	}
-
 	if err := service.Logout(ctx, credentials.SessionToken); err != nil {
-		t.Fatalf("Logout() error = %v", err)
-	}
-	if _, err := service.Authenticate(ctx, credentials.SessionToken); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("Authenticate() after logout error = %v, want ErrUnauthorized", err)
-	}
-}
-
-func TestEnsureAdminRevokesSessionOnPasswordChange(t *testing.T) {
-	ctx := context.Background()
-	service := newTestService(t)
-	credentials, err := service.Login(ctx, "admin", "correct-password")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := service.EnsureAdmin(ctx, "admin", "new-password"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.Authenticate(ctx, credentials.SessionToken); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("old session error = %v, want ErrUnauthorized", err)
-	}
-	if _, err := service.Login(ctx, "admin", "new-password"); err != nil {
-		t.Fatalf("login with new password: %v", err)
+		t.Fatalf("logged-out error=%v", err)
 	}
 }
 
-func TestResetAdminCredentialsChangesUsernameAndPasswordWithoutOldPassword(t *testing.T) {
-	ctx := context.Background()
+func TestOIDCUsersKeepDistinctSessionIdentities(t *testing.T) {
 	service := newTestService(t)
-	credentials, err := service.Login(ctx, "admin", "correct-password")
+	ctx := context.Background()
+	for _, name := range []string{"alice", "bob"} {
+		credentials, err := service.LoginOIDC(ctx, oidclogin.Identity{Issuer: testIssuer, Subject: name + "-id", Username: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		session, err := service.Authenticate(ctx, credentials.SessionToken)
+		if err != nil || session.Principal.Username != name {
+			t.Fatalf("identity lost: %+v %v", session, err)
+		}
+		stored, err := service.store.SessionByTokenHash(ctx, hashToken(credentials.SessionToken))
+		if err != nil || stored.OIDCSubject != name+"-id" || stored.OIDCIssuer != testIssuer {
+			t.Fatal("stable OIDC identity not persisted")
+		}
+	}
+}
+
+func TestOIDCRejectsOtherIssuersAndMissingSubjects(t *testing.T) {
+	service := newTestService(t)
+	for _, identity := range []oidclogin.Identity{{Issuer: "https://evil.example", Subject: "alice"}, {Issuer: testIssuer}} {
+		if _, err := service.LoginOIDC(context.Background(), identity); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("accepted identity %+v: %v", identity, err)
+		}
+	}
+}
+
+func TestLegacyAndOtherIssuerSessionsAreRejected(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	if err := service.store.EnsureOIDCAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.CreateSession(ctx, 1, hashToken("legacy"), hashToken("csrf"), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Authenticate(ctx, "legacy"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("legacy session accepted")
+	}
+	credentials, err := service.LoginOIDC(ctx, oidclogin.Identity{Issuer: testIssuer, Subject: "alice", Username: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if err := service.ResetAdminCredentials(ctx, "new-admin", "replacement-password"); err != nil {
-		t.Fatalf("ResetAdminCredentials() error = %v", err)
-	}
-	if _, err := service.Login(ctx, "admin", "correct-password"); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("old credentials error = %v, want ErrInvalidCredentials", err)
-	}
-	if _, err := service.Login(ctx, "new-admin", "replacement-password"); err != nil {
-		t.Fatalf("new credentials login error = %v", err)
-	}
+	service.oidcIssuer = "https://other.example"
 	if _, err := service.Authenticate(ctx, credentials.SessionToken); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("old session error = %v, want ErrUnauthorized", err)
-	}
-}
-
-func TestResetAdminCredentialsValidatesInput(t *testing.T) {
-	service := newTestService(t)
-	for _, test := range []struct {
-		name     string
-		username string
-		password string
-	}{
-		{name: "empty username", password: "replacement-password"},
-		{name: "control whitespace", username: "bad\tname", password: "replacement-password"},
-		{name: "empty password", username: "admin", password: ""},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if err := service.ResetAdminCredentials(context.Background(), test.username, test.password); err == nil {
-				t.Fatal("ResetAdminCredentials() accepted invalid input")
-			}
-		})
-	}
-}
-
-func TestResetAdminCredentialsAcceptsPasswordsWithoutComplexityRules(t *testing.T) {
-	ctx := context.Background()
-	for _, password := range []string{"1", strings.Repeat("x", 256)} {
-		service := newTestService(t)
-		if err := service.ResetAdminCredentials(ctx, "admin", password); err != nil {
-			t.Fatalf("ResetAdminCredentials(%d-byte password) error = %v", len(password), err)
-		}
-		if _, err := service.Login(ctx, "admin", password); err != nil {
-			t.Fatalf("Login(%d-byte password) error = %v", len(password), err)
-		}
-	}
-}
-
-func TestChangePasswordAcceptsPasswordsWithoutComplexityRules(t *testing.T) {
-	ctx := context.Background()
-	for _, password := range []string{"1", strings.Repeat("long-password-", 32)} {
-		service := newTestService(t)
-		if err := service.ChangePassword(ctx, "admin", "correct-password", password); err != nil {
-			t.Fatalf("ChangePassword(%d-byte password) error = %v", len(password), err)
-		}
-		if _, err := service.Login(ctx, "admin", password); err != nil {
-			t.Fatalf("Login(%d-byte password) error = %v", len(password), err)
-		}
-	}
-}
-
-func TestEnsureAdminIfMissingDoesNotOverwriteChangedPassword(t *testing.T) {
-	ctx := context.Background()
-	service := newTestService(t)
-	if err := service.ChangePassword(ctx, "admin", "correct-password", "changed-password"); err != nil {
-		t.Fatal(err)
-	}
-	created, err := service.EnsureAdminIfMissing(ctx, "admin", "stale-config-password")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created {
-		t.Fatal("existing administrator was reported as newly created")
-	}
-	if _, err := service.Login(ctx, "admin", "changed-password"); err != nil {
-		t.Fatalf("database password was overwritten: %v", err)
-	}
-	if _, err := service.Login(ctx, "admin", "stale-config-password"); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("stale configured password became active: %v", err)
+		t.Fatal("other issuer session accepted")
 	}
 }

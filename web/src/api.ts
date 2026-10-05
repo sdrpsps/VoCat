@@ -1,7 +1,6 @@
 import type {
   ApiErrorBody,
   LoggingSettings,
-  LoginResponse,
   SecuritySettings,
   Session,
 } from "./types";
@@ -163,15 +162,6 @@ async function requestAPI<T>(path: string, options: RequestOptions, retryCSRF: b
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return requestAPI<T>(path, options, true);
-}
-
-export async function login(username: string, password: string) {
-  const result = await api<LoginResponse & { user?: { username?: string } }>("/auth/login", {
-    method: "POST",
-    body: { username, password },
-  });
-  if (result.csrfToken) sessionStorage.setItem(CSRF_KEY, result.csrfToken);
-  return result;
 }
 
 export async function session() {

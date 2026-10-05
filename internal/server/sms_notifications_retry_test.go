@@ -7,8 +7,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"vocat/internal/auth"
 	"vocat/internal/store"
 )
@@ -25,7 +23,7 @@ func TestSMSNotificationFailureDoesNotStallLaterMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	authService, err := auth.New(database, auth.Options{SessionTTL: time.Hour, BcryptCost: bcrypt.MinCost})
+	authService, err := auth.New(database, auth.Options{SessionTTL: time.Hour, OIDCIssuer: "https://test.pocket-id.example"})
 	if err != nil {
 		t.Fatal(err)
 	}

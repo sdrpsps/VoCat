@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"vocat/internal/store"
 )
@@ -76,38 +75,6 @@ func TestAccessControlMiddleware(t *testing.T) {
 	}
 	if got := check(internal, "8.8.8.8:5000", "192.168.1.20"); got != http.StatusForbidden {
 		t.Fatalf("untrusted X-Forwarded-For was honored: %d", got)
-	}
-}
-
-func TestLoginRateLimiterLocksAndResets(t *testing.T) {
-	limiter := newLoginRateLimiter()
-	now := time.Now()
-	limiter.now = func() time.Time { return now }
-	key := "192.168.1.1|admin"
-
-	for i := 0; i < limiter.maxFailures-1; i++ {
-		if _, locked := limiter.recordFailure(key); locked {
-			t.Fatalf("locked after %d failures, below threshold", i+1)
-		}
-	}
-	if _, locked := limiter.recordFailure(key); !locked {
-		t.Fatal("not locked at the failure threshold")
-	}
-	if _, locked := limiter.checkLocked(key); !locked {
-		t.Fatal("checkLocked did not report the lock")
-	}
-	// Success clears the track record.
-	limiter.recordSuccess(key)
-	if _, locked := limiter.checkLocked(key); locked {
-		t.Fatal("still locked after a success")
-	}
-	// Lockout expires after the lockout duration.
-	for i := 0; i < limiter.maxFailures; i++ {
-		limiter.recordFailure(key)
-	}
-	now = now.Add(limiter.lockout + time.Second)
-	if _, locked := limiter.checkLocked(key); locked {
-		t.Fatal("lock did not expire after the lockout window")
 	}
 }
 
@@ -209,37 +176,21 @@ func TestLoggingCountIsClampedToHardLimit(t *testing.T) {
 	}
 }
 
-func TestLoginLockoutViaHTTP(t *testing.T) {
+func TestHTTPPasswordLoginIsRemoved(t *testing.T) {
 	app := newTestApplication(t)
-	for i := 0; i < 4; i++ {
-		response, err := app.client.Post(app.server.URL+"/api/auth/login", "application/json",
-			strings.NewReader(`{"username":"admin","password":"wrong"}`))
+	for _, password := range []string{"wrong", "correct-password"} {
+		response, err := app.client.Post(app.server.URL+"/api/auth/login", "application/json", strings.NewReader(`{"username":"admin","password":"`+password+`"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
 		response.Body.Close()
 		if response.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("attempt %d status = %d, want 401", i+1, response.StatusCode)
+			t.Fatalf("password login status = %d, want 401", response.StatusCode)
 		}
-	}
-	// Fifth consecutive failure crosses the threshold and locks.
-	response, err := app.client.Post(app.server.URL+"/api/auth/login", "application/json",
-		strings.NewReader(`{"username":"admin","password":"wrong"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	if response.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("5th failure status = %d, want 429", response.StatusCode)
-	}
-	// Even the correct password is refused while locked.
-	response, err = app.client.Post(app.server.URL+"/api/auth/login", "application/json",
-		strings.NewReader(`{"username":"admin","password":"correct-password"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	if response.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("locked login status = %d, want 429", response.StatusCode)
+		for _, cookie := range response.Cookies() {
+			if cookie.Value != "" {
+				t.Fatal("password login issued cookies")
+			}
+		}
 	}
 }

@@ -113,7 +113,7 @@ The installer:
 - installs Vocat under `/opt/vocat`;
 - creates a hardened systemd service with the hardware and network access required by Vocat;
 - stores runtime configuration in `/etc/vocat/env`;
-- generates a random initial administrator password on first installation.
+- uses Pocket ID as the sole login provider; see [Pocket ID setup](docs/POCKET_ID.md).
 
 After installation, open:
 
@@ -139,9 +139,6 @@ Verify and install it:
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -d -m 0755 /opt/vocat/bin /opt/vocat/data
 sudo install -m 0755 vocat-linux-amd64 /opt/vocat/bin/vocat
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | sudo /opt/vocat/bin/vocat bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 sudo env \
   VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db \
   /opt/vocat/bin/vocat serve
@@ -160,20 +157,13 @@ continue seeing USB hot-plug events, run Vocat in hardware-access mode:
 ```bash
 docker pull ghcr.io/mengmengcode/vocat:latest
 
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | docker run --rm -i \
-  --user 0:0 \
-  -v vocat-data:/opt/vocat/data \
-  --entrypoint /opt/vocat/bin/vocat \
-  ghcr.io/mengmengcode/vocat:latest bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
-
 docker run -d \
   --name vocat \
   --restart unless-stopped \
   --network host \
   --privileged \
   --user 0:0 \
+  --env-file /path/to/protected/vocat.env \
   -v vocat-data:/opt/vocat/data \
   -v /dev:/dev \
   -v /sys:/sys:ro \
@@ -196,11 +186,6 @@ modem layouts. Mapping only individual nodes with `--device`, such as
 those fixed nodes and does not provide complete multi-device or hot-plug discovery.
 
 The GHCR image is published for `linux/amd64` and `linux/arm64`.
-
-> [!TIP]
-> **NAS / QNAP Container Station Deployment Note**:
-> On NAS operating systems like QNAP QTS / QuTS hero (Container Station), custom non-root administrator accounts and volume isolation mechanisms may cause Docker named volumes (e.g. `-v vocat-data:/opt/vocat/data`) to resolve to different isolated paths between the one-off `bootstrap-admin` initialization and the daemon service container, leading to "Incorrect password" errors during Web login.
-> For NAS environments, it is strongly recommended to replace named volumes with a host absolute path bind mount (e.g. `-v /share/Container/vocat/data:/opt/vocat/data` on QNAP) for both initialization and runtime to guarantee consistent SQLite database persistence.
 
 ### USB SIM readers
 
@@ -244,9 +229,14 @@ User-supplied Apple carrier bundles can be converted into reviewable,
 allow-listed carrier profiles with `vocat carrier import-ipcc`; see
 [docs/CARRIER_IPCC_IMPORT.md](docs/CARRIER_IPCC_IMPORT.md).
 
-Administrator credentials are stored only in SQLite. Initialize an empty
-database once with `vocat bootstrap-admin`; environment variables and JSON
-configuration cannot set or overwrite the administrator username or password.
+Pocket ID is the only login method. Configure an OIDC client with the exact callback
+`https://<vocat-host>/api/auth/oidc/callback`, and restrict that client to the users
+or groups who may administer VoCat. There is no local username/password login,
+password reset, or administrator bootstrap command. Upgrading revokes previous
+sessions and removes the stored administrator password hash.
+
+See [Pocket ID setup](docs/POCKET_ID.md) for configuration and deployment steps.
+Pocket ID must be configured before starting VoCat or running the Linux installer.
 
 Do not store Telegram tokens, SMTP passwords, webhook secrets, SIM credentials, or other private data in the repository. Configure them through the application settings or protected environment files.
 
@@ -296,6 +286,10 @@ Requirements:
 - Node.js 20 or newer
 - npm
 
+Configure Pocket ID first (see [Pocket ID setup](docs/POCKET_ID.md)). For development,
+register a separate loopback callback such as
+`http://127.0.0.1:5173/api/auth/oidc/callback` for the Vite proxy.
+
 Run the frontend development server:
 
 ```bash
@@ -310,7 +304,7 @@ Build the embedded frontend and start the backend:
 cd web
 npm run build
 cd ..
-go run ./cmd/vocat
+go run ./cmd/vocat serve
 ```
 
 Run all tests:

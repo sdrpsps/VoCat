@@ -1,3 +1,5 @@
+> This fork uses Pocket ID as the only login method. Local account/password login is removed. See [Pocket ID setup](POCKET_ID.md) for current installation and authentication configuration.
+
 <p align="center">
   <img src="../web/public/favicon.svg" width="96" alt="Vocat">
 </p>
@@ -137,9 +139,6 @@ http://<server-address>:7575
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -d -m 0755 /opt/vocat/bin /opt/vocat/data
 sudo install -m 0755 vocat-linux-amd64 /opt/vocat/bin/vocat
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | sudo /opt/vocat/bin/vocat bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 sudo env \
   VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db \
   /opt/vocat/bin/vocat serve
@@ -158,13 +157,6 @@ sudo env \
 ```bash
 docker pull ghcr.io/mengmengcode/vocat:latest
 
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | docker run --rm -i \
-  --user 0:0 \
-  -v vocat-data:/opt/vocat/data \
-  --entrypoint /opt/vocat/bin/vocat \
-  ghcr.io/mengmengcode/vocat:latest bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 
 docker run -d \
   --name vocat \
@@ -183,11 +175,6 @@ docker run -d \
 Этот режим намеренно предоставляет Vocat широкий доступ к устройствам и сетевому стеку хоста. Используйте его только на доверенном хосте Linux. Автоматическое обнаружение распознаёт поддерживаемые USB-модемы Quectel (идентификатор производителя USB `2c7c`) и модемы PCIe/MHI, представленные через подсистему Linux WWAN; произвольные конфигурации модемов не распознаются. Проброс только отдельных узлов с помощью `--device`, например `/dev/ttyUSB2`, `/dev/cdc-wdm0` или `/dev/wwan0qmi0`, ограничивает контейнер этими фиксированными узлами и не обеспечивает полноценного обнаружения нескольких устройств или горячего подключения.
 
 Образ GHCR публикуется для `linux/amd64` и `linux/arm64`.
-
-> [!TIP]
-> **Примечание по развёртыванию на NAS / QNAP Container Station**:
-> В операционных системах NAS, таких как QNAP QTS / QuTS hero (Container Station), пользовательские учётные записи администратора без прав root и механизмы изоляции томов могут приводить к тому, что именованные тома Docker (например, `-v vocat-data:/opt/vocat/data`) указывают на разные изолированные пути при однократной инициализации `bootstrap-admin` и в контейнере фоновой службы, вызывая ошибки «Неверный пароль» при входе через веб-интерфейс.
-> В средах NAS настоятельно рекомендуется заменить именованные тома привязкой абсолютного пути хоста (например, `-v /share/Container/vocat/data:/opt/vocat/data` на QNAP) как при инициализации, так и при работе службы, чтобы обеспечить согласованное постоянное хранение базы данных SQLite.
 
 ### USB-считыватели SIM-карт
 
@@ -216,7 +203,6 @@ Vocat читает необязательный JSON-файл конфигура
 
 Предоставленные пользователем пакеты настроек операторов Apple можно преобразовать командой `vocat carrier import-ipcc` в профили операторов, доступные для проверки и ограниченные списком разрешённых элементов; см. [docs/CARRIER_IPCC_IMPORT.md](CARRIER_IPCC_IMPORT.md).
 
-Учётные данные администратора хранятся только в SQLite. Один раз инициализируйте пустую базу данных командой `vocat bootstrap-admin`; переменные окружения и конфигурация JSON не могут задать или перезаписать имя пользователя либо пароль администратора.
 
 Не храните токены Telegram, пароли SMTP, секреты вебхуков, учётные данные SIM или другие приватные данные в репозитории. Настраивайте их через параметры приложения или защищённые файлы окружения.
 

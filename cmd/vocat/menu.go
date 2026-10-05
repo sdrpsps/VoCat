@@ -16,14 +16,13 @@ import (
 
 	"golang.org/x/term"
 
-	"vocat/internal/auth"
 	"vocat/internal/config"
 	"vocat/internal/store"
 	"vocat/internal/update"
 )
 
-// envFilePath carries non-secret service settings such as the Web listen port.
-// Administrator credentials live exclusively in the database.
+// envFilePath carries protected service settings, including OIDC configuration.
+// Sign-in is managed exclusively by Pocket ID.
 const envFilePath = "/etc/vocat/env"
 
 // legacyEnvFilePath was used by the standalone deploy/vocat.service. Keep it
@@ -90,7 +89,7 @@ func menuEnvFilePath() string {
 	return envFilePath
 }
 
-// runMenu is the interactive lifecycle menu: toggle language, reset credentials,
+// runMenu is the interactive lifecycle menu: toggle language,
 // change the Web listener port, restart the managed service, self-update, or
 // fully uninstall vocat. It must run as root on the host because it manages the
 // systemd/procd service and the 0600 env file. Docker deployments do not use it.
@@ -127,10 +126,6 @@ func runMenu(logger *slog.Logger) error {
 		switch choice {
 		case "1":
 			if err := menuToggleLanguage(menu, logger); err != nil {
-				fmt.Println(menu.errorPrefix(err))
-			}
-		case "2":
-			if err := menuResetAdminCredentials(reader, menu); err != nil {
 				fmt.Println(menu.errorPrefix(err))
 			}
 		case "3":
@@ -193,69 +188,6 @@ func loadMenuLanguage() (string, error) {
 		return "zh", nil
 	}
 	return "en", nil
-}
-
-func menuResetAdminCredentials(reader *bufio.Reader, m *menu) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("%w: %v", errMenuConfig, err)
-	}
-	ctx := context.Background()
-
-	database, err := store.Open(ctx, cfg.DatabasePath)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errMenuStore, err)
-	}
-	defer database.Close()
-
-	authService, err := auth.New(database, auth.Options{SessionTTL: cfg.SessionTTL})
-	if err != nil {
-		return fmt.Errorf("%w: %v", errMenuAuth, err)
-	}
-	admin, err := database.CurrentAdmin(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errMenuStore, err)
-	}
-	fmt.Print(m.newUsername(admin.Username))
-	username, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("read administrator username: %w", err)
-	}
-	username = strings.TrimSpace(username)
-	if username == "" {
-		username = admin.Username
-	}
-	fmt.Print(m.newPassword())
-	newPw, err := readPasswordMasked()
-	if err != nil {
-		return err
-	}
-	fmt.Print(m.confirmPassword())
-	confirmPw, err := readPasswordMasked()
-	if err != nil {
-		return err
-	}
-	fmt.Println()
-	if newPw != confirmPw {
-		return errPasswordsDiffer
-	}
-	if err := authService.ResetAdminCredentials(ctx, username, newPw); err != nil {
-		return fmt.Errorf("%w: %v", errMenuAuth, err)
-	}
-	fmt.Println(m.passwordChanged())
-	return nil
-}
-
-// readPasswordMasked reads a password with echo disabled. term.ReadPassword
-// does not return the trailing newline, so we print one for a clean prompt.
-func readPasswordMasked() (string, error) {
-	fd := int(os.Stdin.Fd())
-	bytes, err := term.ReadPassword(fd)
-	fmt.Println()
-	if err != nil {
-		return "", fmt.Errorf("read password: %w", err)
-	}
-	return string(bytes), nil
 }
 
 // rewriteEnvValue replaces or appends one systemd EnvironmentFile value. The
@@ -643,13 +575,11 @@ func menuUninstall(reader *bufio.Reader, m *menu) error {
 
 // menu-local sentinel errors so callers can map them to localized messages.
 var (
-	errPasswordsDiffer    = errors.New("menu: passwords do not match")
 	errNoServiceManager   = errors.New("menu: no supported service manager")
 	errRestartFailed      = errors.New("menu: restart failed")
 	errUpdateFailed       = errors.New("menu: update failed")
 	errMenuConfig         = errors.New("menu: load configuration")
 	errMenuStore          = errors.New("menu: open database")
-	errMenuAuth           = errors.New("menu: auth service")
 	errMenuPortWrite      = errors.New("menu: write Web port")
 	errInvalidWebPort     = errors.New("menu: invalid Web port")
 	errWebPortUnavailable = errors.New("menu: Web port unavailable")
@@ -667,17 +597,12 @@ func (m *menu) msg(key string) string {
 	table := map[string][2]string{
 		"title":               {"vocat 管理菜单", "vocat management menu"},
 		"opt_lang":            {"1) 切换中英文", "1) Toggle language"},
-		"opt_change":          {"2) 修改账号密码", "2) Change admin credentials"},
 		"opt_port":            {"3) 修改 Web 监听端口", "3) Change Web listening port"},
 		"opt_restart":         {"4) 重启软件", "4) Restart software"},
 		"opt_update":          {"5) 更新软件", "5) Update software"},
 		"opt_uninstall":       {"0) 卸载软件", "0) Uninstall software"},
 		"prompt":              {"请选择: ", "Select: "},
 		"invalid":             {"无效选项，请重试。按 Ctrl+C 退出。", "Invalid choice, try again. Press Ctrl+C to exit."},
-		"new_username":        {"新用户名（直接回车保留 %s）: ", "New username (Enter to keep %s): "},
-		"new_pw":              {"新密码: ", "New password: "},
-		"confirm_pw":          {"确认新密码: ", "Confirm new password: "},
-		"pw_changed":          {"管理员账号密码已修改，现有 Web 会话已退出。", "Administrator credentials changed; existing Web sessions were signed out."},
 		"current_web_address": {"当前 Web 监听地址: %s", "Current Web listening address: %s"},
 		"new_web_port":        {"新端口 (1-65535，直接回车取消，当前 %s): ", "New port (1-65535, Enter to cancel, current %s): "},
 		"web_port_cancelled":  {"已取消修改端口。", "Web port change cancelled."},
@@ -714,12 +639,6 @@ func (m *menu) msg(key string) string {
 func (m *menu) title() string   { return m.msg("title") }
 func (m *menu) prompt() string  { return m.msg("prompt") }
 func (m *menu) invalid() string { return m.msg("invalid") }
-func (m *menu) newUsername(current string) string {
-	return fmt.Sprintf(m.msg("new_username"), current)
-}
-func (m *menu) newPassword() string     { return m.msg("new_pw") }
-func (m *menu) confirmPassword() string { return m.msg("confirm_pw") }
-func (m *menu) passwordChanged() string { return m.msg("pw_changed") }
 func (m *menu) currentWebAddress(address string) string {
 	return fmt.Sprintf(m.msg("current_web_address"), address)
 }
@@ -741,7 +660,6 @@ func (m *menu) uninstalled() string        { return m.msg("uninstalled") }
 func (m *menu) options() []string {
 	return []string{
 		m.msg("opt_lang"),
-		m.msg("opt_change"),
 		m.msg("opt_port"),
 		m.msg("opt_restart"),
 		m.msg("opt_update"),
@@ -751,11 +669,6 @@ func (m *menu) options() []string {
 
 func (m *menu) errorPrefix(err error) string {
 	switch {
-	case errors.Is(err, errPasswordsDiffer):
-		if m.lang == "en" {
-			return "Passwords do not match."
-		}
-		return "两次输入的密码不一致。"
 	case errors.Is(err, errNoServiceManager):
 		if m.lang == "en" {
 			return "Neither systemd nor OpenWrt procd is available."
@@ -782,11 +695,6 @@ func (m *menu) errorPrefix(err error) string {
 			return "Failed to open the database."
 		}
 		return "打开数据库失败。"
-	case errors.Is(err, errMenuAuth):
-		if m.lang == "en" {
-			return "Auth service error."
-		}
-		return "认证服务错误。"
 	case errors.Is(err, errInvalidWebPort):
 		if m.lang == "en" {
 			return "Invalid port. Enter a number from 1 to 65535."

@@ -18,7 +18,6 @@ interface AuthContextValue {
   ready: boolean;
   isAuthenticated: boolean;
   user: AuthUser | null;
-  login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -39,20 +38,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true);
     }
   }, []);
-
-  const login = useCallback(
-    async (username: string, password: string) => {
-      try {
-        await api.login(username, password);
-        const current = await api.session();
-        setUser({ username: current.username || username, role: current.role || "Administrator" });
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [],
-  );
 
   const logout = useCallback(async () => {
     try {
@@ -76,8 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ready, isAuthenticated: !!user, user, login, logout, refresh }),
-    [ready, user, login, logout, refresh],
+    () => ({ ready, isAuthenticated: !!user, user, logout, refresh }),
+    [ready, user, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

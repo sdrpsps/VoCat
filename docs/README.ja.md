@@ -1,3 +1,5 @@
+> This fork uses Pocket ID as the only login method. Local account/password login is removed. See [Pocket ID setup](POCKET_ID.md) for current installation and authentication configuration.
+
 <p align="center">
   <img src="../web/public/favicon.svg" width="96" alt="Vocat">
 </p>
@@ -133,9 +135,6 @@ http://<server-address>:7575
 sha256sum -c SHA256SUMS --ignore-missing
 sudo install -d -m 0755 /opt/vocat/bin /opt/vocat/data
 sudo install -m 0755 vocat-linux-amd64 /opt/vocat/bin/vocat
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | sudo /opt/vocat/bin/vocat bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 sudo env \
   VOCAT_DATABASE_PATH=/opt/vocat/data/vocat.db \
   /opt/vocat/bin/vocat serve
@@ -150,13 +149,6 @@ sudo env \
 ```bash
 docker pull ghcr.io/mengmengcode/vocat:latest
 
-read -rsp "Admin password: " VOCAT_BOOTSTRAP_PASSWORD; echo
-printf '%s\n' "$VOCAT_BOOTSTRAP_PASSWORD" | docker run --rm -i \
-  --user 0:0 \
-  -v vocat-data:/opt/vocat/data \
-  --entrypoint /opt/vocat/bin/vocat \
-  ghcr.io/mengmengcode/vocat:latest bootstrap-admin
-unset VOCAT_BOOTSTRAP_PASSWORD
 
 docker run -d \
   --name vocat \
@@ -175,11 +167,6 @@ docker run -d \
 このモードは意図的に Vocat にホストのデバイスとネットワークスタックへの広範なアクセス権を与えます。信頼できる Linux ホストでのみ使用してください。自動検出は、サポート対象の Quectel USB モデム（USB ベンダー ID `2c7c`）と、Linux WWAN サブシステムを通じて公開される PCIe/MHI モデムを識別します。任意のモデム構成を識別するものではありません。`--device` で `/dev/ttyUSB2`、`/dev/cdc-wdm0`、`/dev/wwan0qmi0` などの個別ノードのみをマッピングすると、コンテナはそれらの固定ノードに限定され、複数デバイスやホットプラグを完全には検出できません。
 
 GHCR イメージは `linux/amd64` と `linux/arm64` 向けに公開されています。
-
-> [!TIP]
-> **NAS / QNAP Container Station へのデプロイに関する注意**：
-> QNAP QTS / QuTS hero（Container Station）などの NAS OS では、root 以外のカスタム管理者アカウントとボリューム分離の仕組みにより、Docker の名前付きボリューム（例：`-v vocat-data:/opt/vocat/data`）が、1 回限りの `bootstrap-admin` 初期化時と常駐サービスコンテナで異なる隔離パスに解決され、Web ログイン時に「パスワードが正しくありません」というエラーが発生する場合があります。
-> NAS 環境では、SQLite データベースの永続化の一貫性を確保するため、初期化時と実行時の両方で、名前付きボリュームをホストの絶対パスによるバインドマウント（例：QNAP では `-v /share/Container/vocat/data:/opt/vocat/data`）に置き換えることを強く推奨します。
 
 ### USB SIM リーダー
 
@@ -208,7 +195,6 @@ Vocat は `VOCAT_CONFIG` からオプションの JSON 設定ファイルを読�
 
 ユーザーが提供する Apple キャリアバンドルは、`vocat carrier import-ipcc` で、内容を確認可能で許可リストに準拠したキャリアプロファイルに変換できます。[docs/CARRIER_IPCC_IMPORT.md](CARRIER_IPCC_IMPORT.md) を参照してください。
 
-管理者の認証情報は SQLite にのみ保存されます。空のデータベースを `vocat bootstrap-admin` で一度初期化してください。環境変数や JSON 設定では、管理者のユーザー名やパスワードを設定または上書きできません。
 
 Telegram トークン、SMTP パスワード、Webhook シークレット、SIM 認証情報、その他のプライベートデータをリポジトリに保存しないでください。アプリケーション設定または保護された環境ファイルを通じて設定してください。
 

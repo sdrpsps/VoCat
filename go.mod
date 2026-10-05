@@ -4,10 +4,12 @@ go 1.25.0
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/coreos/go-oidc/v3 v3.16.0
+	github.com/go-jose/go-jose/v4 v4.1.3
 	github.com/iniwex5/quectel-qmi-go v0.6.0
 	github.com/warthog618/sms v0.3.0
 	go.bug.st/serial v1.6.4
-	golang.org/x/crypto v0.52.0
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.43.0
 	golang.org/x/text v0.41.0

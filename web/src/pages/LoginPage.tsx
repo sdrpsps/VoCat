@@ -1,41 +1,23 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRightRegular, LockClosedRegular, PersonRegular } from "@fluentui/react-icons";
-import { useAuth } from "../store/auth";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ArrowRightRegular } from "@fluentui/react-icons";
+import { api } from "../api";
 import { useI18n } from "../lib/i18n";
-import { message } from "../components/ui/message";
 import { BrandLogo } from "../components/shell/BrandLogo";
 
-const INPUT_CLASS =
-  "w-full rounded-lg border border-gray-200 bg-white/70 py-3 pl-10 pr-4 font-mono text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-indigo-500/40 focus:ring-2 focus:ring-indigo-500/25 dark:border-white/10 dark:bg-black/20 dark:text-gray-100 dark:placeholder-gray-500";
-
 export default function LoginPage() {
-  const { login } = useAuth();
   const { t } = useI18n();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [working, setWorking] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!username || !password) {
-      message.warning(t("请输入用户名和密码"));
-      return;
-    }
-    setWorking(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    const ok = await login(username, password);
-    setWorking(false);
-    if (ok) {
-      message.success(t("欢迎回来"));
-      const redirect = searchParams.get("redirect");
-      navigate(redirect ? decodeURIComponent(redirect) : "/", { replace: true });
-    } else {
-      message.error(t("登录失败，请检查凭证"));
-    }
-  }
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    api<{ enabled: boolean }>("/auth/config")
+      .then((config) => { if (active) setEnabled(config.enabled); })
+      .catch(() => { if (active) setEnabled(false); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
@@ -53,50 +35,33 @@ export default function LoginPage() {
             </h2>
             <p className="mt-3 text-sm tracking-wide text-gray-500 dark:text-gray-400">{t("高通模块专业测试工具")}</p>
           </div>
-          <form onSubmit={submit} className="relative z-10 space-y-6">
-            <div className="space-y-2">
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 dark:text-gray-500">
-                  <PersonRegular className="h-5 w-5" />
-                </div>
-                <input
-                  className={INPUT_CLASS}
-                  placeholder={t("用户名")}
-                  type="text"
-                  autoComplete="username"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 dark:text-gray-500">
-                  <LockClosedRegular className="h-5 w-5" />
-                </div>
-                <input
-                  className={INPUT_CLASS}
-                  placeholder={t("密码")}
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </div>
-            </div>
+          <div className="relative z-10 space-y-6">
+            <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+              {t("使用 Pocket ID 安全登录")}
+            </p>
+            {searchParams.has("error") && (
+              <p role="alert" className="text-center text-sm text-red-600 dark:text-red-400">
+                {t("Pocket ID 登录未完成，请重试。")}
+              </p>
+            )}
+            {!loading && !enabled && (
+              <p role="alert" className="text-center text-sm text-amber-600 dark:text-amber-400">
+                {t("Pocket ID 暂不可用，请联系管理员。")}
+              </p>
+            )}
             <button
-              type="submit"
-              disabled={working}
+              type="button"
+              disabled={loading || !enabled}
+              onClick={() => {
+                const query = new URLSearchParams({ redirect: searchParams.get("redirect") || "/" });
+                window.location.assign(`/api/auth/oidc/start?${query.toString()}`);
+              }}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0ea5e9] px-4 py-3 font-bold text-white shadow-sm transition-all duration-200 hover:bg-[#0284c7] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {working ? (
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              ) : (
-                <span>{t("登录")}</span>
-              )}
-              {!working && <ArrowRightRegular className="h-5 w-5" />}
+              {loading ? t("加载中") : t("使用 Pocket ID 登录")}
+              <ArrowRightRegular className="h-5 w-5" />
             </button>
-          </form>
+          </div>
         </div>
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">vocat © 2026</p>

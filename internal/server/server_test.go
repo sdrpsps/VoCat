@@ -16,10 +16,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"vocat/internal/auth"
 	"vocat/internal/loghub"
+	"vocat/internal/oidclogin"
 	"vocat/internal/store"
 )
 
@@ -50,8 +49,9 @@ func TestUserOperationLoggerExcludesReadTraffic(t *testing.T) {
 }
 
 type testApplication struct {
-	server *httptest.Server
-	client *http.Client
+	handler *Server
+	server  *httptest.Server
+	client  *http.Client
 }
 
 func newTestApplication(t *testing.T) testApplication {
@@ -65,12 +65,12 @@ func newTestApplication(t *testing.T) testApplication {
 	})
 	authService, err := auth.New(database, auth.Options{
 		SessionTTL: time.Hour,
-		BcryptCost: bcrypt.MinCost,
+		OIDCIssuer: "https://test.pocket-id.example",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authService.EnsureAdmin(context.Background(), "admin", "correct-password"); err != nil {
+	if err := database.EnsureOIDCAdmin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assets := fstest.MapFS{
@@ -93,8 +93,9 @@ func newTestApplication(t *testing.T) testApplication {
 		t.Fatal(err)
 	}
 	return testApplication{
-		server: httpServer,
-		client: &http.Client{Jar: jar},
+		handler: handler,
+		server:  httpServer,
+		client:  &http.Client{Jar: jar},
 	}
 }
 
@@ -139,8 +140,8 @@ func TestHealthAndSPAFallback(t *testing.T) {
 func TestLoginSessionCSRFAndLogout(t *testing.T) {
 	app := newTestApplication(t)
 
-	loginBody := bytes.NewBufferString(`{"username":"admin","password":"correct-password"}`)
-	response, err := app.client.Post(app.server.URL+"/api/auth/login", "application/json", loginBody)
+	response := app.login(t)
+	var err error
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +233,7 @@ func TestUnifiedAPIErrors(t *testing.T) {
 	}
 	response.Body.Close()
 
-	loginBody := bytes.NewBufferString(`{"username":"admin","password":"correct-password"}`)
-	response, err = app.client.Post(app.server.URL+"/api/auth/login", "application/json", loginBody)
+	response = app.login(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,13 +259,22 @@ func TestUnifiedAPIErrors(t *testing.T) {
 	}
 
 	badLogin := bytes.NewBufferString(`{"username":"admin","password":"wrong","extra":true}`)
-	response, err = app.client.Post(app.server.URL+"/api/auth/login", "application/json", badLogin)
+	request, err := http.NewRequest(http.MethodPost, app.server.URL+"/api/auth/login", badLogin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range app.client.Jar.Cookies(request.URL) {
+		if cookie.Name == csrfCookieName {
+			request.Header.Set(csrfHeaderName, cookie.Value)
+		}
+	}
+	response, err = app.client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid JSON status = %d", response.StatusCode)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("password login status = %d", response.StatusCode)
 	}
 }
 
@@ -301,7 +310,7 @@ func TestNewRequiresIndex(t *testing.T) {
 	defer database.Close()
 	authService, err := auth.New(database, auth.Options{
 		SessionTTL: time.Hour,
-		BcryptCost: bcrypt.MinCost,
+		OIDCIssuer: "https://test.pocket-id.example",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,8 +404,8 @@ func TestUIPreferencesDefaultPublicReadAndPersistedWrite(t *testing.T) {
 		t.Fatalf("unauthenticated write status = %d", status)
 	}
 
-	loginBody := bytes.NewBufferString(`{"username":"admin","password":"correct-password"}`)
-	response, err := app.client.Post(app.server.URL+"/api/auth/login", "application/json", loginBody)
+	response := app.login(t)
+	var err error
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,4 +431,21 @@ func TestUIPreferencesDefaultPublicReadAndPersistedWrite(t *testing.T) {
 	if status, language := readLanguage(); status != http.StatusOK || language != "zh" {
 		t.Fatalf("persisted preferences = %d %q", status, language)
 	}
+}
+
+// Seed sessions directly for unrelated API tests. HTTP password login is removed;
+// the OIDC callback tests exercise the replacement authentication boundary.
+func (app testApplication) login(t *testing.T) *http.Response {
+	t.Helper()
+	credentials, err := app.handler.auth.LoginOIDC(context.Background(), oidclogin.Identity{Issuer: "https://test.pocket-id.example", Subject: "subject-admin", Username: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.handler.setAuthCookies(recorder, credentials.SessionToken, credentials.CSRFToken, credentials.ExpiresAt)
+	writeJSON(recorder, http.StatusOK, map[string]any{"data": map[string]any{"csrf_token": credentials.CSRFToken}})
+	response := recorder.Result()
+	request, _ := http.NewRequest(http.MethodGet, app.server.URL, nil)
+	app.client.Jar.SetCookies(request.URL, response.Cookies())
+	return response
 }

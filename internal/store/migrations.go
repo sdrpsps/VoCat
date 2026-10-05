@@ -488,6 +488,15 @@ func migrationStatements(version int) []string {
 			`CREATE INDEX automatic_task_runs_task_idx ON automatic_task_runs(task_id, id DESC)`,
 			`CREATE INDEX automatic_task_runs_status_idx ON automatic_task_runs(status, id)`,
 		}
+	case 26:
+		return []string{
+			`ALTER TABLE sessions ADD COLUMN oidc_issuer TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE sessions ADD COLUMN oidc_subject TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE sessions ADD COLUMN oidc_username TEXT NOT NULL DEFAULT ''`,
+			// Password-authenticated sessions cannot carry over into Pocket ID login.
+			`DELETE FROM sessions`,
+			`ALTER TABLE admins DROP COLUMN password_hash`,
+		}
 	default:
 		return nil
 	}

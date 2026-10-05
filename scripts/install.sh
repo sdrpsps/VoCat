@@ -10,9 +10,8 @@
 # Behavior:
 #   - Prompts for script language (中文 / English) as soon as it runs.
 #   - If the installed version equals the target version, does nothing (unless --force).
-#   - On first install, generates a random 32-char admin password, initializes
-#     it directly in SQLite through stdin, and prints it ONCE.
-#   - Administrator credentials are never stored in /etc/vocat/env.
+#   - Requires Pocket ID OIDC settings in /etc/vocat/env.
+#   - Does not create local accounts or passwords.
 #   - Verifies Linux XFRM/IPsec support required by IMS; on OpenWrt it tries
 #     the matching opkg packages first.
 #   - (Re)writes a systemd or OpenWrt/procd service and restarts it.
@@ -397,33 +396,21 @@ ensure_data_dir() {
     chown -R root:root /opt/vocat
 }
 
-# --- Administrator bootstrap and non-secret environment ---------------------
-FIRST_INSTALL=0
-INITIAL_ADMIN_PASSWORD=""
-
-bootstrap_admin() {
+# --- Pocket ID configuration and database compatibility ----------------------
+check_database() {
     local candidate="${1:-$BINARY_PATH}"
-    local secret result
-    if command -v od >/dev/null 2>&1; then
-        secret=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-    elif command -v hexdump >/dev/null 2>&1; then
-        secret=$(hexdump -n 16 -e '16/1 "%02x"' /dev/urandom)
-    elif command -v openssl >/dev/null 2>&1; then
-        secret=$(openssl rand -hex 16 2>/dev/null || true)
-    elif command -v sha256sum >/dev/null 2>&1; then
-        secret=$(head -c 32 /dev/urandom | sha256sum | awk '{print substr($1, 1, 32)}')
-    else
-        secret=$(tr -dc 'a-f0-9' < /dev/urandom | head -c 32)
-    fi
-    [ -n "$secret" ] || die "生成随机密钥失败。" "Failed to generate a random secret."
-    result=$(printf '%s\n' "$secret" | "$candidate" bootstrap-admin --database /opt/vocat/data/vocat.db --username admin) || \
-        die \
-            "待安装版本无法读取或升级现有数据库；当前程序尚未被替换，请检查数据库与版本兼容性。" \
-            "The candidate version cannot read or migrate the existing database; the installed program was not replaced. Check database and version compatibility."
-    if [ "$result" = "created" ]; then
-        FIRST_INSTALL=1
-        INITIAL_ADMIN_PASSWORD="$secret"
-    fi
+    "$candidate" database-check --database /opt/vocat/data/vocat.db || \
+        die "待安装版本无法读取或升级数据库，当前程序尚未替换。" \
+            "The candidate cannot read or migrate the database; the installed program was not replaced."
+}
+
+require_oidc_config() {
+    for key in VOCAT_OIDC_ISSUER VOCAT_OIDC_CLIENT_ID VOCAT_OIDC_REDIRECT_URL; do
+        if [ ! -f "$ENV_FILE" ] || ! grep -q "^${key}=." "$ENV_FILE"; then
+            die "请先在 $ENV_FILE 配置 Pocket ID OIDC（权限 0600），参见 docs/POCKET_ID.md。" \
+                "Configure Pocket ID OIDC in $ENV_FILE (mode 0600) first; see docs/POCKET_ID.md."
+        fi
+    done
 }
 
 setup_env() {
@@ -632,32 +619,18 @@ if [ "$CHECK_ENV" -eq 1 ]; then
 fi
 resolve_target_version
 skip_if_equal
+require_oidc_config
 download_and_verify
 ensure_data_dir
 # Validate the database with the downloaded binary before replacing the
 # installed program. In particular, a release with an older schema must never
 # overwrite a newer working binary and leave the service in a restart loop.
-bootstrap_admin "${VOCAT_TMP}/vocat"
+check_database "${VOCAT_TMP}/vocat"
 install_binary
 setup_env
 write_service
 enable_and_start
 
-if [ "$FIRST_INSTALL" -eq 1 ]; then
-    echo
-    msg "================ 安装完成 ================" "================ Install complete ================"
-    msg "首次安装已生成管理员初始密码 (仅显示一次):" "First-install admin password (shown once):"
-    echo
-    echo "    $INITIAL_ADMIN_PASSWORD"
-    echo
-    msg "用户名为 admin。请立即记录此密码。" "Username is admin. Record this password now."
-    msg "登录后或运行以下命令修改密码:" "Change it via the web UI or run:"
-    echo "    vocat menu"
-    msg "==========================================" "=============================================="
-else
-    echo
-    msg "================ 更新完成 ================" "================ Update complete ================"
-    msg "已更新到 $TARGET_VERSION，服务已重启。" "Updated to $TARGET_VERSION; service restarted."
-    msg "管理员密码保持不变。" "Admin password unchanged."
-    msg "==========================================" "=============================================="
-fi
+echo
+msg "================ 安装/更新完成 ================" "================ Install/update complete ================"
+msg "已安装 $TARGET_VERSION，服务已重启。请使用 Pocket ID 登录。" "Installed $TARGET_VERSION; service restarted. Sign in with Pocket ID."
