@@ -156,3 +156,117 @@ func TestInstallerProvidesRequiredQMIUtilities(t *testing.T) {
 		t.Error("installer does not install QMI utilities from its main path")
 	}
 }
+
+func TestInstallerPocketIDConfiguration(t *testing.T) {
+	script, err := os.ReadFile("../../scripts/install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(script), "read_env_value()")
+	end := strings.Index(string(script), "# --- systemd unit")
+	if start < 0 || end <= start {
+		t.Fatal("installer configuration functions not found")
+	}
+	complete := "VOCAT_ADDR=127.0.0.1:7575\nVOCAT_OIDC_ISSUER=https://auth.example.com\nVOCAT_OIDC_CLIENT_ID=client-id\nVOCAT_OIDC_REDIRECT_URL=https://vocat.example.com/api/auth/oidc/callback\nVOCAT_OIDC_CLIENT_SECRET=saved-test-secret\n"
+	for _, test := range []struct {
+		name, existing, mode, secret                 string
+		terminal, reconfigure, unattended, wantError bool
+	}{
+		{name: "first interactive install", existing: "VOCAT_ADDR=127.0.0.1:7575\nVOCAT_ADMIN_PASSWORD=obsolete\n", terminal: true, secret: "new-test-secret"},
+		{name: "existing configuration reused without terminal", existing: complete, secret: "saved-test-secret"},
+		{name: "keep secret while reconfiguring", existing: complete, terminal: true, reconfigure: true, mode: "keep", secret: "saved-test-secret"},
+		{name: "clear secret for public client", existing: complete, terminal: true, reconfigure: true, mode: "clear"},
+		{name: "unattended installation", unattended: true, secret: "injected-test-secret"},
+		{name: "missing configuration without terminal", existing: "VOCAT_ADDR=127.0.0.1:7575\n", wantError: true},
+		{name: "cancelled input", existing: "VOCAT_ADDR=127.0.0.1:7575\n", terminal: true, mode: "cancel", wantError: true},
+		{name: "reject multiline injected secret", unattended: true, secret: "first\nVOCAT_ADDR=unwanted", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			file := filepath.Join(dir, "env")
+			if test.existing != "" {
+				if err := os.WriteFile(file, []byte(test.existing), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			body := `set -euo pipefail
+umask 000
+ENV_DIR="$TEST_DIR"
+ENV_FILE="$ENV_DIR/env"
+CONFIGURE_OIDC="$TEST_RECONFIGURE"
+msg() { printf '%s\n' "$2"; }
+die() { msg "$1" "$2" >&2; exit 1; }
+` + string(script[start:end]) + `
+oidc_has_terminal() { [ "$TEST_TERMINAL" = 1 ]; }
+prompt_oidc_value() {
+    if [ "$TEST_MODE" = cancel ]; then die "cancelled" "cancelled"; fi
+    if [ "$TEST_MODE" = keep ] || [ "$TEST_MODE" = clear ]; then
+        OIDC_INPUT="$2"
+        if [ "$3" = 1 ] && [ "$TEST_MODE" = clear ]; then OIDC_INPUT=""; fi
+        return
+    fi
+    case "$1" in
+        'Pocket ID URL / Issuer') OIDC_INPUT=https://auth.example.com ;;
+        'Client ID') OIDC_INPUT=client-id ;;
+        'Callback URL') OIDC_INPUT=https://vocat.example.com/api/auth/oidc/callback ;;
+        'Client Secret') OIDC_INPUT="$TEST_SECRET" ;;
+    esac
+}
+configure_oidc
+setup_env
+`
+			command := exec.Command("bash", "-c", body)
+			for _, entry := range os.Environ() {
+				if !strings.HasPrefix(entry, "VOCAT_OIDC_") {
+					command.Env = append(command.Env, entry)
+				}
+			}
+			flag := func(v bool) string {
+				if v {
+					return "1"
+				}
+				return "0"
+			}
+			command.Env = append(command.Env, "TEST_DIR="+dir, "TEST_TERMINAL="+flag(test.terminal), "TEST_RECONFIGURE="+flag(test.reconfigure), "TEST_MODE="+test.mode, "TEST_SECRET="+test.secret)
+			if test.unattended {
+				command.Env = append(command.Env, "VOCAT_OIDC_ISSUER=https://auth.example.com", "VOCAT_OIDC_CLIENT_ID=client-id", "VOCAT_OIDC_REDIRECT_URL=https://vocat.example.com/api/auth/oidc/callback", "VOCAT_OIDC_CLIENT_SECRET="+test.secret)
+			}
+			output, err := command.CombinedOutput()
+			if (err != nil) != test.wantError {
+				t.Fatalf("configuration error=%v output=%s", err, output)
+			}
+			if test.secret != "" && strings.Contains(string(output), test.secret) {
+				t.Fatal("secret leaked to output")
+			}
+			data, readErr := os.ReadFile(file)
+			if test.wantError {
+				if test.existing == "" && !os.IsNotExist(readErr) {
+					t.Fatal("failed configuration created a file")
+				}
+				if test.existing != "" && (readErr != nil || string(data) != test.existing) {
+					t.Fatal("failed configuration modified existing settings")
+				}
+				return
+			}
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if !strings.Contains(string(data), "VOCAT_OIDC_CLIENT_SECRET="+test.secret+"\n") {
+				t.Fatal("secret was not preserved or replaced correctly")
+			}
+			if !strings.Contains(string(data), "VOCAT_OIDC_CLIENT_ID=client-id\n") {
+				t.Fatal("missing client ID")
+			}
+			if test.existing != "" && !strings.Contains(string(data), "VOCAT_ADDR=127.0.0.1:7575\n") {
+				t.Fatal("other configuration was lost")
+			}
+			if strings.Contains(string(data), "VOCAT_ADMIN_PASSWORD=") {
+				t.Fatal("legacy password was retained")
+			}
+			info, err := os.Stat(file)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatal("configuration permissions must be 0600")
+			}
+		})
+	}
+}

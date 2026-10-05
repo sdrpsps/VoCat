@@ -10,7 +10,7 @@
 # Behavior:
 #   - Prompts for script language (中文 / English) as soon as it runs.
 #   - If the installed version equals the target version, does nothing (unless --force).
-#   - Requires Pocket ID OIDC settings in /etc/vocat/env.
+#   - Prompts for Pocket ID settings when missing and saves them automatically.
 #   - Does not create local accounts or passwords.
 #   - Verifies Linux XFRM/IPsec support required by IMS; on OpenWrt it tries
 #     the matching opkg packages first.
@@ -110,15 +110,17 @@ fi
 # --- Parse args --------------------------------------------------------------
 FORCE=0
 CHECK_ENV=0
+CONFIGURE_OIDC=0
 SKIP_VOWIFI_CHECK="${VOCAT_SKIP_VOWIFI_CHECK:-0}"
 TARGET_VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=1 ;;
         --check-env) CHECK_ENV=1 ;;
+        --configure-oidc) CONFIGURE_OIDC=1 ;;
         --skip-vowifi-check) SKIP_VOWIFI_CHECK=1 ;;
         -h|--help)
-            msg "用法: bash install.sh [--force] [--check-env] [--skip-vowifi-check] [版本]" "Usage: bash install.sh [--force] [--check-env] [--skip-vowifi-check] [version]"
+            msg "用法: bash install.sh [--force] [--configure-oidc] [--check-env] [--skip-vowifi-check] [版本]" "Usage: bash install.sh [--force] [--configure-oidc] [--check-env] [--skip-vowifi-check] [version]"
             exit 0
             ;;
         *) TARGET_VERSION="${arg#v}" ;;
@@ -423,25 +425,127 @@ check_database() {
             "The candidate cannot read or migrate the database; the installed program was not replaced."
 }
 
-require_oidc_config() {
-    for key in VOCAT_OIDC_ISSUER VOCAT_OIDC_CLIENT_ID VOCAT_OIDC_REDIRECT_URL; do
-        if [ ! -f "$ENV_FILE" ] || ! grep -q "^${key}=." "$ENV_FILE"; then
-            die "请先在 $ENV_FILE 配置 Pocket ID OIDC（权限 0600），参见 docs/POCKET_ID.md。" \
-                "Configure Pocket ID OIDC in $ENV_FILE (mode 0600) first; see docs/POCKET_ID.md."
+read_env_value() {
+    local key="$1" line value="${!1:-}"
+    if [ -f "$ENV_FILE" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in "$key="*) value="${line#*=}" ;; esac
+        done < "$ENV_FILE"
+    fi
+    # Accept simple quoted values from a hand-written environment file without
+    # sourcing it or evaluating shell expressions.
+    case "$value" in
+        \"*\") value="${value#\"}"; value="${value%\"}" ;;
+        \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    printf '%s' "$value"
+}
+
+oidc_env_value_supported() {
+    # Both systemd and procd read these as literal, single-line assignments.
+    # Pocket ID-generated client secrets use characters supported here.
+    case "$1" in *[[:space:]]*|*\"*|*\'*|*\\*) return 1 ;; esac
+}
+
+oidc_has_terminal() {
+    ( : </dev/tty ) 2>/dev/null
+}
+
+prompt_oidc_value() {
+    local label="$1" current="$2" secret="$3" required="$4" input
+    while true; do
+        if [ "$secret" -eq 1 ]; then
+            msg "$label（输入隐藏；回车保留，输入 - 清除）:" \
+                "$label (hidden; Enter keeps the current value, - clears it):" >/dev/tty
+            if ! IFS= read -rs input </dev/tty; then
+                printf '\n' >/dev/tty
+                die "配置输入已取消，未保存修改。" "Configuration cancelled; changes were not saved."
+            fi
+            printf '\n' >/dev/tty
+        else
+            printf '%s [%s]: ' "$label" "$current" >/dev/tty
+            IFS= read -r input </dev/tty || die \
+                "配置输入已取消，未保存修改。" "Configuration cancelled; changes were not saved."
+        fi
+        [ -n "$input" ] || input="$current"
+        if [ "$secret" -eq 1 ] && [ "$input" = "-" ]; then input=""; fi
+        if [ "$required" -eq 1 ] && [ -z "$input" ]; then
+            msg "此项不能为空。" "This value is required." >/dev/tty
+        elif ! oidc_env_value_supported "$input"; then
+            msg "输入不能包含空白、引号或反斜杠，请重新输入。" \
+                "Whitespace, quotes and backslashes are not supported; enter the value again." >/dev/tty
+        else
+            OIDC_INPUT="$input"
+            return
         fi
     done
 }
 
+configure_oidc() {
+    OIDC_WRITE=0
+    OIDC_ISSUER=$(read_env_value VOCAT_OIDC_ISSUER)
+    OIDC_CLIENT_ID=$(read_env_value VOCAT_OIDC_CLIENT_ID)
+    OIDC_REDIRECT_URL=$(read_env_value VOCAT_OIDC_REDIRECT_URL)
+    OIDC_CLIENT_SECRET=$(read_env_value VOCAT_OIDC_CLIENT_SECRET)
+    if [ "$CONFIGURE_OIDC" -eq 0 ] && [ -n "$OIDC_ISSUER" ] && \
+        [ -n "$OIDC_CLIENT_ID" ] && [ -n "$OIDC_REDIRECT_URL" ]; then
+        # Environment variables supplied for unattended installation also need
+        # to be persisted for the service, which does not inherit this shell.
+        if [ ! -f "$ENV_FILE" ] || ! grep -q '^VOCAT_OIDC_ISSUER=.' "$ENV_FILE" || \
+            ! grep -q '^VOCAT_OIDC_CLIENT_ID=.' "$ENV_FILE" || \
+            ! grep -q '^VOCAT_OIDC_REDIRECT_URL=.' "$ENV_FILE"; then
+            OIDC_WRITE=1
+        fi
+    else
+        oidc_has_terminal || die \
+            "缺少 Pocket ID 配置且无交互终端。请下载脚本后在终端运行，或通过环境变量提供 OIDC 配置。" \
+            "Pocket ID settings are missing and no terminal is available. Download and run the script in a terminal, or supply the OIDC environment variables."
+        msg "配置 Pocket ID；Client Secret 仅 confidential client 必填，public client 可留空。" \
+            "Configure Pocket ID; a Client Secret is required for confidential clients, and may be empty for public clients."
+        prompt_oidc_value "Pocket ID URL / Issuer" "$OIDC_ISSUER" 0 1
+        OIDC_ISSUER="$OIDC_INPUT"
+        prompt_oidc_value "Client ID" "$OIDC_CLIENT_ID" 0 1
+        OIDC_CLIENT_ID="$OIDC_INPUT"
+        prompt_oidc_value "Callback URL" "$OIDC_REDIRECT_URL" 0 1
+        OIDC_REDIRECT_URL="$OIDC_INPUT"
+        prompt_oidc_value "Client Secret" "$OIDC_CLIENT_SECRET" 1 0
+        OIDC_CLIENT_SECRET="$OIDC_INPUT"
+        unset OIDC_INPUT
+        OIDC_WRITE=1
+    fi
+    if [ "$OIDC_WRITE" -eq 1 ]; then
+        for value in "$OIDC_ISSUER" "$OIDC_CLIENT_ID" "$OIDC_REDIRECT_URL" "$OIDC_CLIENT_SECRET"; do
+            oidc_env_value_supported "$value" || die \
+                "OIDC 配置含不支持的空白、引号或反斜杠。" \
+                "OIDC configuration contains unsupported whitespace, quotes or backslashes."
+        done
+    fi
+}
+
 setup_env() {
     install -d -m 0755 "$ENV_DIR"
-    local temporary="${ENV_FILE}.new.$$"
-    if [ -f "$ENV_FILE" ]; then
-        grep -Ev '^VOCAT_ADMIN_(USERNAME|PASSWORD|PASSWORD_B64)=' "$ENV_FILE" > "$temporary" || true
-    else
-        : > "$temporary"
+    local temporary
+    temporary=$(mktemp "${ENV_DIR}/.env.XXXXXX")
+    local pattern='^VOCAT_ADMIN_(USERNAME|PASSWORD|PASSWORD_B64)='
+    if [ "$OIDC_WRITE" -eq 1 ]; then
+        pattern="$pattern|^VOCAT_OIDC_(ISSUER|CLIENT_ID|CLIENT_SECRET|REDIRECT_URL)="
     fi
+    if [ -f "$ENV_FILE" ]; then
+        local status=0
+        grep -Ev "$pattern" "$ENV_FILE" > "$temporary" || status=$?
+        if [ "$status" -gt 1 ]; then
+            rm -f "$temporary"
+            die "无法读取原有配置，未覆盖文件。" "Cannot read existing configuration; the file was not replaced."
+        fi
+    fi
+    if [ "$OIDC_WRITE" -eq 1 ]; then
+        printf '%s\n' "VOCAT_OIDC_ISSUER=$OIDC_ISSUER" "VOCAT_OIDC_CLIENT_ID=$OIDC_CLIENT_ID" \
+            "VOCAT_OIDC_REDIRECT_URL=$OIDC_REDIRECT_URL" "VOCAT_OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET" >> "$temporary"
+    fi
+    # mktemp creates mode 0600 before any secret is written, and rename retains it.
     mv -f "$temporary" "$ENV_FILE"
     chmod 0600 "$ENV_FILE"
+    unset OIDC_CLIENT_SECRET
 }
 
 # --- systemd unit ------------------------------------------------------------
@@ -637,8 +741,8 @@ if [ "$CHECK_ENV" -eq 1 ]; then
     exit 0
 fi
 resolve_target_version
-skip_if_equal
-require_oidc_config
+if [ "$CONFIGURE_OIDC" -eq 0 ]; then skip_if_equal; fi
+configure_oidc
 download_and_verify
 ensure_data_dir
 # Validate the database with the downloaded binary before replacing the

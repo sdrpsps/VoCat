@@ -118,7 +118,8 @@ The installer:
 - verifies it against `SHA256SUMS`;
 - installs Vocat under `/opt/vocat`;
 - creates a hardened systemd service with the hardware and network access required by Vocat;
-- stores runtime configuration in `/etc/vocat/env`;
+- prompts for missing Pocket ID settings, hides Client Secret input, and saves configuration automatically with mode `0600`;
+- reuses existing settings on upgrades; use `--configure-oidc` to enter them again and reinstall;
 - uses Pocket ID as the sole login provider; see [Pocket ID setup](docs/POCKET_ID.md).
 
 After installation, open:

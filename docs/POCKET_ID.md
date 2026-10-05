@@ -49,7 +49,18 @@ CGO_ENABLED=0 go build -trimpath -o build/vocat ./cmd/vocat
 
 不要用尚未包含本分支 OIDC 改动的上游二进制覆盖当前版本。使用 Docker 时先设置以上 `VOCAT_OIDC_*` 变量和 secret，再运行 `docker compose up -d --build`；已有上游镜像不包含本次改动。SQLite 数据卷仍应持久化。
 
-使用 Linux 安装脚本时，先在权限为 `0600` 的 `/etc/vocat/env` 中配置以上变量；安装脚本不再生成初始密码，缺少必要 OIDC 配置时会在替换程序前停止。安装脚本默认使用 `sdrpsps/VoCat` 的 release，并通过 `https://ghfast.top` 加速二进制及 `SHA256SUMS` 下载，失败时自动回退到 GitHub 直连。可用 `VOCAT_REPO` 指定另一个兼容版本来源；显式设置 `VOCAT_GITHUB_PROXY=` 可禁用加速。GitHub API 请求及 token 不经过加速站。发布包含本次改动的 fork release 后再安装，避免使用不含 OIDC 功能的旧版 release。
+使用 Linux 安装脚本时，无需手动编辑配置文件。缺少 OIDC 配置时，脚本会交互询问 Pocket ID URL / Issuer、Client ID、Callback URL 和 Client Secret。Secret 隐藏输入；confidential client 必须填写，public client 可以留空。输入须为单行，不含空白、引号或反斜杠（Pocket ID 自动生成的 secret 支持此格式）。配置会自动保存到权限为 `0600` 的 `/etc/vocat/env`，其他运行配置保留；后续升级沿用已有配置。
+
+下载脚本后在交互终端运行；同版本从上游切换到本分支时使用 `--force`：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/sdrpsps/VoCat/master/scripts/install.sh -o install.sh
+sudo bash install.sh --force 0.3.11
+```
+
+重新配置时运行 `sudo bash install.sh --configure-oidc 0.3.11`。此选项会重新询问配置并安装指定版本；回车保留已有值，Secret 输入 `-` 可清除已有值以切换到 public client。无终端的自动化安装也可预先提供 `VOCAT_OIDC_*` 环境变量，脚本会自动保存；secret 应由部署平台安全注入，避免写入命令行或 shell 历史。
+
+安装脚本不生成初始密码。输入取消或配置缺失时，在替换程序前停止。脚本默认使用 `sdrpsps/VoCat` 的 release，并通过 `https://ghfast.top` 加速二进制及 `SHA256SUMS` 下载，失败时自动回退到 GitHub 直连。可用 `VOCAT_REPO` 指定另一个兼容版本来源；显式设置 `VOCAT_GITHUB_PROXY=` 可禁用加速。GitHub API 请求及 token 不经过加速站。
 
 ## 升级与会话
 
