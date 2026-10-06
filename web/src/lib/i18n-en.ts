@@ -11,7 +11,7 @@ export const EN_DICT: Record<string, string> = {
   "检测到上游新版本，请及时合并上游，保留本分支的自定义功能。": "A new upstream version is available. Merge upstream changes while preserving this fork's custom features.",
   "未发现更新的上游发布版本。": "No newer upstream release was found.",
 
-  "使用安全密钥登录": "Sign in with a passkey",
+  "使用通行密钥登录": "Sign in with a passkey",
   "Pocket ID 登录未完成，请重试。": "Pocket ID sign-in did not complete. Please try again.",
   "Pocket ID 暂不可用，请联系管理员。": "Pocket ID is unavailable. Please contact your administrator.",
 

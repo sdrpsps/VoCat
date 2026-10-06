@@ -269,6 +269,22 @@ Review and merge those changes into this fork, preserving its Pocket ID login,
 then build and publish this fork's binaries or container image before deploying.
 The web interface does not replace this fork with upstream binaries.
 
+The server also checks upstream automatically on startup when due, then every
+24 hours. Check times and per-channel delivery receipts are stored in the
+database, so restarts do not repeat checks or notifications for the same release.
+All enabled notification channels receive the current and upstream versions,
+release notes, release link, and a reminder to merge upstream while preserving
+this fork. Long text is shortened with a link to the complete notes. Disabled
+channels are skipped; failed deliveries retry at the next daily check without
+repeating successful channels. GitHub check failures are logged and retried the
+next day. There is no automatic binary replacement.
+
+Webhook notifications use event `upstream.update_available` and include
+`current_version`, `latest_version`, `release_url`, `release_notes`, and
+`merge_required`, preserving the configured headers and HMAC signing. WeCom and
+Lark templates can use `{{title}}`, `{{message}}` or `{{content}}` for the update
+notification, with `{{event}}` set to `upstream.update_available`.
+
 Fork releases retain the corresponding upstream version number. The automatic
 patch-version workflow runs only in the upstream repository; this change does
 not increase the version number. When reinstalling a rebuilt fork release with

@@ -55,7 +55,7 @@ export default function LoginPage() {
               }}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0ea5e9] px-4 py-3 font-bold text-white shadow-sm transition-all duration-200 hover:bg-[#0284c7] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading ? t("加载中") : t("使用安全密钥登录")}
+              {loading ? t("加载中") : t("使用通行密钥登录")}
               <ArrowRightRegular className="h-5 w-5" />
             </button>
           </div>
