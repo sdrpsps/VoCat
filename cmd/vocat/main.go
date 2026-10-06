@@ -1113,6 +1113,7 @@ func protectVoWiFiStartupRadioWithRetry(
 type vowifiDeviceAdapter interface {
 	vowifi.SIMIdentityReader
 	vowifi.AKAProvider
+	vowifi.PreferredAKAProvider
 	vowifi.RadioController
 }
 
