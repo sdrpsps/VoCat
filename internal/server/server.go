@@ -78,6 +78,9 @@ type Server struct {
 	exportProxy               *exportproxy.Manager
 	developerEnabled          bool
 	updateToken               string
+	upstreamUpdateOnce        sync.Once
+	upstreamUpdateMu          sync.Mutex
+	upstreamSend              func(context.Context, string, map[string]any, upstreamUpdateNotification) error
 	updateCheck               func(context.Context, string, string, string) (update.CheckResult, error)
 	https                     *httpsmode.Manager
 	netTraffic                *liveNetTracker

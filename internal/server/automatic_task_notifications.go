@@ -209,6 +209,10 @@ func sendAutomaticTaskWebhook(ctx context.Context, config map[string]any, messag
 		"status": message.Run.Status, "attempts": message.Run.Attempts,
 		"output": message.Run.Output, "error": message.Run.Error,
 	})
+	return sendJSONWebhookNotification(ctx, config, payload, "vocat-automatic-task/1")
+}
+
+func sendJSONWebhookNotification(ctx context.Context, config map[string]any, payload []byte, userAgent string) error {
 	client, err := restrictedHTTPClient(ctx, durationMilliseconds(configInt(config, "timeout_ms"), 5*time.Second), "")
 	if err != nil {
 		return err
@@ -218,25 +222,33 @@ func sendAutomaticTaskWebhook(ctx context.Context, config map[string]any, messag
 		if err != nil {
 			return err
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(payload))
+		request, err := newSignedJSONWebhookRequest(ctx, parsed.String(), config, payload, userAgent)
 		if err != nil {
 			return err
-		}
-		for name, value := range configStringMap(config, "headers") {
-			request.Header.Set(name, value)
-		}
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("User-Agent", "vocat-automatic-task/1")
-		if secret := configString(config, "secret"); secret != "" {
-			signature := hmac.New(sha256.New, []byte(secret))
-			_, _ = signature.Write(payload)
-			request.Header.Set("X-vocat-Signature", "sha256="+hex.EncodeToString(signature.Sum(nil)))
 		}
 		if err := performNotificationRequest(client, request, false); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func newSignedJSONWebhookRequest(ctx context.Context, destination string, config map[string]any, payload []byte, userAgent string) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, destination, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	for name, value := range configStringMap(config, "headers") {
+		request.Header.Set(name, value)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("User-Agent", userAgent)
+	if secret := configString(config, "secret"); secret != "" {
+		signature := hmac.New(sha256.New, []byte(secret))
+		_, _ = signature.Write(payload)
+		request.Header.Set("X-vocat-Signature", "sha256="+hex.EncodeToString(signature.Sum(nil)))
+	}
+	return request, nil
 }
 
 func sendEmailTextNotification(ctx context.Context, config map[string]any, subject, text string) error {

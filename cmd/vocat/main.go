@@ -620,6 +620,7 @@ func run(logger *slog.Logger, logs *loghub.Hub) error {
 	handler.StartSMSNotificationDispatchers(pollContext)
 	go handler.StartCellularCallMonitor(pollContext)
 	handler.StartAutomaticTasks(pollContext)
+	handler.StartUpstreamUpdateMonitor(pollContext)
 
 	serverConfig := func(handler http.Handler) *http.Server {
 		return &http.Server{
