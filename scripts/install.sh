@@ -756,4 +756,4 @@ enable_and_start
 
 echo
 msg "================ 安装/更新完成 ================" "================ Install/update complete ================"
-msg "已安装 $TARGET_VERSION，服务已重启。请使用 Pocket ID 登录。" "Installed $TARGET_VERSION; service restarted. Sign in with Pocket ID."
+msg "已安装 $TARGET_VERSION，服务已重启。" "Installed $TARGET_VERSION; service restarted."
