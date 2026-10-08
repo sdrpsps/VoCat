@@ -15,6 +15,7 @@ export const EN_DICT: Record<string, string> = {
   "Pocket ID 登录未完成，请重试。": "Pocket ID sign-in did not complete. Please try again.",
   "Pocket ID 暂不可用，请联系管理员。": "Pocket ID is unavailable. Please contact your administrator.",
 
+  "蜂窝射频已关闭，已阻止整机重启。关闭 VoWiFi 和飞行模式后才能重启，这会开启蜂窝射频。": "Cellular RF is disabled, so the modem restart was blocked. Disable VoWiFi and airplane mode before restarting; this will enable cellular RF.",
   "清空配置": "Clear configuration",
   "清空后将移除该渠道的账号、地址和凭据，其他选项恢复默认值。启用状态保持不变，点击“保存通知配置”后生效。": "This removes accounts, addresses and credentials and restores other options to defaults. The enabled state stays unchanged. Click Save notification settings to apply.",
   "启用 MeoW 推送": "Enable MeoW notifications",
