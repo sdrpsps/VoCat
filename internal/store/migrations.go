@@ -462,7 +462,17 @@ func migrationStatements(version int) []string {
 				updated_at INTEGER NOT NULL,
 				FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
 			)`,
-			`INSERT INTO automatic_tasks SELECT * FROM automatic_tasks_v24`,
+			`INSERT INTO automatic_tasks (
+				id, name, enabled, device_id, profile_iccid, profile_aid, task_type,
+				environment, interval_days, start_date, run_time, timezone, payload_json,
+				retry_count, notify, next_run_at, last_run_at, last_status, last_error,
+				created_at, updated_at
+			) SELECT
+				id, name, enabled, device_id, profile_iccid, profile_aid, task_type,
+				environment, interval_days, start_date, run_time, timezone, payload_json,
+				retry_count, notify, next_run_at, last_run_at, last_status, last_error,
+				created_at, updated_at
+			FROM automatic_tasks_v24`,
 			`CREATE TABLE automatic_task_runs (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				task_id INTEGER NOT NULL,
@@ -496,6 +506,13 @@ func migrationStatements(version int) []string {
 			// Password-authenticated sessions cannot carry over into Pocket ID login.
 			`DELETE FROM sessions`,
 			`ALTER TABLE admins DROP COLUMN password_hash`,
+		}
+	case 27:
+		// Version 26 is already used by this fork's Pocket ID migration.
+		return []string{
+			`ALTER TABLE automatic_tasks
+				ADD COLUMN revert_profile INTEGER NOT NULL DEFAULT 1
+				CHECK (revert_profile IN (0, 1))`,
 		}
 	default:
 		return nil

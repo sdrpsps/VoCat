@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 26
+const schemaVersion = 27
 
 var ErrNotFound = errors.New("store: not found")
 
@@ -23,6 +23,7 @@ type Store struct {
 	db           *sql.DB
 	logMu        sync.Mutex
 	logClearedAt time.Time
+	logMinLevel  string
 }
 
 type Admin struct {
@@ -132,7 +133,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 					(nextVersion == 19 && strings.Contains(statement, "ADD COLUMN")) ||
 					(nextVersion == 23 && strings.Contains(statement, "ADD COLUMN")) ||
 					(nextVersion == 24 && strings.Contains(statement, "ADD COLUMN mbn_profile")) ||
-					(nextVersion == 26 && strings.Contains(statement, "ADD COLUMN oidc_"))
+					(nextVersion == 26 && strings.Contains(statement, "ADD COLUMN oidc_")) ||
+					(nextVersion == 27 && strings.Contains(statement, "ADD COLUMN revert_profile"))
 				if duplicateAdditiveColumn && strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
 					continue
 				}
