@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -153,6 +154,25 @@ func TestUpstreamUpdateMessageLimitsAndMissingNotes(t *testing.T) {
 		}
 		if notes == "" && !strings.Contains(message.Text, "未提供更新说明") {
 			t.Fatal("missing release notes fallback")
+		}
+	}
+}
+
+func TestUpstreamNotificationsIgnoreDeviceScopeWithoutChangingIt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Never contact real providers; reaching validation/transport returns an error.
+	for _, scope := range [][]string{{}, {"selected-device"}} {
+		for _, channel := range notificationChannels {
+			config := map[string]any{
+				"device_ids": scope, "urls": []string{"://invalid"}, "url": "://invalid",
+				"nickname": "/", "payload_template": "{", "smtp_host": "example.invalid",
+			}
+			if err := sendUpstreamUpdateNotification(ctx, channel, config, upstreamUpdateNotification{Title: "update", Text: "release"}); err == nil {
+				t.Errorf("%s scope=%v: system notification was filtered instead of attempting delivery", channel, scope)
+			}
+			if !reflect.DeepEqual(config["device_ids"], scope) {
+				t.Errorf("%s changed saved device scope: %#v", channel, config)
+			}
 		}
 	}
 }

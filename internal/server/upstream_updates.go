@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -168,25 +169,29 @@ func newUpstreamUpdateNotification(result update.CheckResult, now time.Time) ups
 }
 
 func sendUpstreamUpdateNotification(ctx context.Context, channel string, config map[string]any, message upstreamUpdateNotification) error {
+	// Release updates concern the whole installation, not a particular device.
+	// Keep the saved scope intact for SMS, calls and automatic tasks.
+	config = maps.Clone(config)
+	delete(config, "device_ids")
 	switch channel {
 	case "telegram":
-		return sendTelegramTextNotification(ctx, config, message.Title+"\n"+message.Text)
+		return sendTelegramTextNotification(ctx, config, "", message.Title+"\n"+message.Text)
 	case "bark":
-		return sendBarkTextNotification(ctx, config, message.Title, message.Text)
+		return sendBarkTextNotification(ctx, config, "", message.Title, message.Text)
 	case "email":
-		return sendEmailTextNotification(ctx, config, message.Title, message.Text)
+		return sendEmailTextNotification(ctx, config, "", message.Title, message.Text)
 	case "pushplus":
-		return sendPushplusTextNotification(ctx, config, message.Title, message.Text)
+		return sendPushplusTextNotification(ctx, config, "", message.Title, message.Text)
 	case "meow":
-		return meowNotificationSender(ctx, config, message.Title, message.Text)
+		return sendMeowNotification(ctx, config, nil, message.Title, message.Text)
 	case "wecom", "lark":
 		values := map[string]string{"event": "upstream.update_available", "title": message.Title,
 			"message": message.Text, "content": message.Text, "timestamp": message.Time.Format(time.RFC3339),
 			"time": message.Time.Local().Format("2006-01-02 15:04:05")}
 		if channel == "wecom" {
-			return sendWecomNotification(ctx, config, wecomTemplateValues(values))
+			return sendWecomNotification(ctx, config, nil, wecomTemplateValues(values))
 		}
-		return sendLarkNotification(ctx, config, larkTemplateValues(values))
+		return sendLarkNotification(ctx, config, nil, larkTemplateValues(values))
 	case "webhook":
 		payload, err := message.webhookPayload()
 		if err != nil {

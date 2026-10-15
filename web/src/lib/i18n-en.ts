@@ -16,7 +16,11 @@ export const EN_DICT: Record<string, string> = {
   "Pocket ID 暂不可用，请联系管理员。": "Pocket ID is unavailable. Please contact your administrator.",
 
   "清空配置": "Clear configuration",
-  "清空后将移除该渠道的账号、地址和凭据，其他选项恢复默认值。启用状态保持不变，点击“保存通知配置”后生效。": "This removes accounts, addresses and credentials and restores other options to defaults. The enabled state stays unchanged. Click Save notification settings to apply.",
+  "清空后将移除该渠道的账号、地址和凭据，其他选项恢复默认值。启用状态和适用设备保持不变，点击“保存通知配置”后生效。": "This removes accounts, addresses and credentials and restores other options to defaults. The enabled state and device scope stay unchanged. Click Save notification settings to apply.",
+  "仅推送指定设备": "Only notify for selected devices",
+  "关闭时推送全部设备的通知。": "When off, notifications are sent for all devices.",
+  "正在加载设备…": "Loading devices…",
+  "设备列表加载失败，已保留适用设备范围。": "Could not load devices. The device scope is unchanged.",
   "启用 MeoW 推送": "Enable MeoW notifications",
   "MeoW 昵称": "MeoW nickname",
   "MeoW 测试失败": "MeoW test failed",
@@ -468,8 +472,10 @@ export const EN_DICT: Record<string, string> = {
   "尚未配置任何企业微信消息推送 Webhook URL，点击右侧添加按钮。": "No WeCom message push Webhook URLs yet. Click the add button on the right.",
   "JSON 请求体模板": "JSON Request Body Template",
   "支持完整企业微信消息推送 JSON。变量必须作为 JSON 值使用，例如": "Supports a complete WeCom message push JSON payload. Use variables as JSON values, for example",
-  "可用变量：{{event}}、{{title}}、{{message}}、{{timestamp}}、{{content}}、{{number}}、{{device_id}}、{{device_name}}、{{device_label}}、{{time}}。":
-    "Available variables: {{event}}, {{title}}, {{message}}, {{timestamp}}, {{content}}, {{number}}, {{device_id}}, {{device_name}}, {{device_label}}, {{time}}.",
+  "可用变量：{{event}}、{{title}}、{{message}}、{{timestamp}}、{{content}}、{{number}}、{{local_phone}}、{{iccid}}、{{recipient}}、{{device_id}}、{{device_name}}、{{device_label}}、{{time}}。":
+    "Available variables: {{event}}, {{title}}, {{message}}, {{timestamp}}, {{content}}, {{number}}, {{local_phone}}, {{iccid}}, {{recipient}}, {{device_id}}, {{device_name}}, {{device_label}}, {{time}}.",
+  "number 为发送方；local_phone 为本机号码；recipient 为本机号码或 ICCID，无信息时为“未知”。":
+    "number is the sender; local_phone is the local number; recipient uses the local number, ICCID, or “未知” if unavailable.",
   "支持飞书 open.feishu.cn 与国际版 Lark open.larksuite.com 的群自定义机器人 Webhook，无需创建应用。":
     "Supports custom group bot Webhooks for Feishu at open.feishu.cn and international Lark at open.larksuite.com; no app is required.",
   "群机器人 Webhook URL": "Group Bot Webhook URL",
