@@ -437,18 +437,41 @@ func TestHandleUSSDContinueRequiresSession(t *testing.T) {
 // without a real runtime manager.
 type fakeUSSIController struct {
 	fakeVoWiFiController
-	sendErr    error
-	sendResult vowifi.USSISubmitResult
-	sendCalled int
-	lastInput  string
+	sendErr          error
+	sendResult       vowifi.USSISubmitResult
+	sendCalled       int
+	lastInput        string
+	lastDeviceID     string
+	lastRequest      vowifi.USSISubmitRequest
+	stateDeviceID    string
+	expectedDeviceID string
+	cancelErr        error
+	cancelCalled     int
+	cancelDeviceID   string
+	cancelSessionID  string
+}
+
+func (controller *fakeUSSIController) State(id string) (vowifi.State, error) {
+	controller.stateDeviceID = id
+	if controller.expectedDeviceID != "" && id != controller.expectedDeviceID {
+		return vowifi.State{}, errors.New("unknown configured device ID")
+	}
+	return controller.fakeVoWiFiController.State(id)
+}
+
+func (controller *fakeUSSIController) CancelUSSI(_ context.Context, deviceID, sessionID string) error {
+	controller.cancelCalled++
+	controller.cancelDeviceID, controller.cancelSessionID = deviceID, sessionID
+	return controller.cancelErr
 }
 
 func (controller *fakeUSSIController) SendUSSI(
 	_ context.Context,
-	_ string,
+	deviceID string,
 	request vowifi.USSISubmitRequest,
 ) (vowifi.USSISubmitResult, error) {
 	controller.sendCalled++
+	controller.lastDeviceID, controller.lastRequest = deviceID, request
 	controller.lastInput = request.Input
 	if request.Code != "" {
 		controller.lastInput = request.Code
@@ -485,7 +508,7 @@ func TestHandleUSSDRoutesOverIMSWhenReady(t *testing.T) {
 	}
 }
 
-func TestHandleUSSDFallsBackToCellularWhenIMSNotReady(t *testing.T) {
+func TestHandleUSSDRejectsUnreadyIMSWithoutCellularFallback(t *testing.T) {
 	controller := &fakeUSSIController{
 		fakeVoWiFiController: fakeVoWiFiController{state: vowifi.State{}},
 	}
@@ -500,13 +523,11 @@ func TestHandleUSSDFallsBackToCellularWhenIMSNotReady(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	server.handleUSSD(recorder, request, store.Device{ID: "dev1", VoWiFiEnabled: true}, "dev1")
-	if recorder.Code != http.StatusOK {
+	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
 	}
-	data := decodeData(t, recorder)
-	result, _ := data["result"].(map[string]any)
-	if result["text"] != "cellular" {
-		t.Fatalf("result = %v, want cellular fallback", result)
+	if !strings.Contains(recorder.Body.String(), "ussi_not_ready") {
+		t.Fatalf("missing IMS readiness error: %s", recorder.Body.String())
 	}
 	if controller.sendCalled != 0 {
 		t.Fatalf("SendUSSI called %d times, want 0", controller.sendCalled)
@@ -532,7 +553,7 @@ func TestHandleUSSDContinueUsesIMSForUSSIPersistedSession(t *testing.T) {
 		store:               database,
 		vowifi:              controller,
 	}
-	sessionID := server.openUSSDSession("dev1")
+	sessionID := server.openUSSDSessionWithNetwork("dev1", "dialog-1")
 	request := httptest.NewRequest(http.MethodPost, "/actions/ussd/continue", strings.NewReader(`{"session_id":"`+sessionID+`","input":"1"}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -556,7 +577,7 @@ func TestHandleUSSDCancelDropsUSSIPersistedSession(t *testing.T) {
 		maxRequestBodyBytes: 4096,
 		vowifi:              &fakeUSSIController{},
 	}
-	sessionID := server.openUSSDSession("dev1")
+	sessionID := server.openUSSDSessionWithNetwork("dev1", "dialog-1")
 	request := httptest.NewRequest(http.MethodPost, "/actions/ussd/cancel", strings.NewReader(`{"session_id":"`+sessionID+`"}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -943,67 +964,37 @@ func TestHandleUpdateApplyPreservesSessions(t *testing.T) {
 	}
 }
 
-func TestE911WebsheetFlow(t *testing.T) {
-	database, err := store.Open(context.Background(), ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	server := &Server{
-		store:               database,
-		logger:              regionTestLogger(),
-		websheets:           newWebsheetManager(),
-		maxRequestBodyBytes: 4096,
-	}
-
-	// 1. Create the websheet.
-	createRec := httptest.NewRecorder()
-	server.handleE911Websheet(createRec, httptest.NewRequest(http.MethodPost, "/e911", nil), store.Device{ID: "dev1"})
-	if createRec.Code != http.StatusOK {
-		t.Fatalf("create status = %d, body=%s", createRec.Code, createRec.Body.String())
-	}
-	createData := decodeData(t, createRec)
-	embedURL, _ := createData["embed_url"].(string)
-	if embedURL == "" || !strings.HasPrefix(embedURL, "/websheets/") {
-		t.Fatalf("embed_url = %v", createData["embed_url"])
-	}
-
-	// 2. The form is served for a valid token.
-	formRec := httptest.NewRecorder()
-	server.handleWebsheet(formRec, httptest.NewRequest(http.MethodGet, embedURL, nil))
-	if formRec.Code != http.StatusOK || !strings.Contains(formRec.Body.String(), "E911") {
-		t.Fatalf("form status = %d", formRec.Code)
-	}
-
-	// 3. The callback stores the address, and done completes the session.
-	callbackURL := strings.Replace(embedURL, "?", "/callback?", 1)
-	callbackReq := httptest.NewRequest(http.MethodPost, callbackURL, strings.NewReader(`{"street":"1 Main St","city":"Springfield","country":"US"}`))
-	callbackReq.Header.Set("Content-Type", "application/json")
-	callbackRec := httptest.NewRecorder()
-	server.handleWebsheet(callbackRec, callbackReq)
-	if callbackRec.Code != http.StatusOK {
-		t.Fatalf("callback status = %d, body=%s", callbackRec.Code, callbackRec.Body.String())
-	}
-	stored, err := database.AppSetting(context.Background(), "e911_address:dev1")
-	if err != nil || !strings.Contains(string(stored.Value), "Springfield") {
-		t.Fatalf("e911 address not persisted: %v %v", stored, err)
-	}
-
-	doneURL := strings.Replace(embedURL, "?", "/done?", 1)
-	doneRec := httptest.NewRecorder()
-	server.handleWebsheet(doneRec, httptest.NewRequest(http.MethodPost, doneURL, nil))
-	if doneRec.Code != http.StatusOK {
-		t.Fatalf("done status = %d", doneRec.Code)
+func TestE911RequiresCarrierAuthentication(t *testing.T) {
+	server := &Server{logger: regionTestLogger(), e911Sessions: newE911SessionManager()}
+	recorder := httptest.NewRecorder()
+	server.handleE911(recorder, httptest.NewRequest(http.MethodPost, "/e911", nil), store.Device{ID: "dev1"}, nil)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
-func TestE911WebsheetRejectsBadToken(t *testing.T) {
-	server := &Server{logger: regionTestLogger(), websheets: newWebsheetManager()}
-	session := server.websheets.create("dev1")
-	recorder := httptest.NewRecorder()
-	server.handleWebsheet(recorder, httptest.NewRequest(http.MethodGet, "/websheets/"+session.id+"?token=wrong", nil))
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("bad token status = %d, want 403", recorder.Code)
+func TestE911SessionsAreBoundToDeviceAndExpire(t *testing.T) {
+	manager := newE911SessionManager()
+	session := &e911Session{deviceID: "dev1", iccid: "test-card"}
+	if err := manager.add(session); err != nil {
+		t.Fatal(err)
+	}
+	if manager.get(session.id, "dev1") != session {
+		t.Fatal("session not found")
+	}
+	if manager.get(session.id, "dev2") != nil {
+		t.Fatal("session crossed device boundary")
+	}
+	session.expiresAt = time.Now().Add(-time.Minute)
+	if manager.get(session.id, "dev1") != nil {
+		t.Fatal("expired session was accepted")
+	}
+	replacement := &e911Session{deviceID: "dev1", iccid: "another-card"}
+	if err := manager.add(replacement); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.sessions) != 1 {
+		t.Fatal("expired session credentials were retained")
 	}
 }
 

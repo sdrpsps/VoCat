@@ -50,11 +50,14 @@ type Manager struct {
 	networkEventSubscribers map[chan string]struct{}
 	deviceEventsMu          sync.Mutex
 	deviceEventSubscribers  map[chan DeviceLifecycleEvent]struct{}
+	smsArrivals             chan struct{}
 
 	qmiRadioOpener                qmiRadioSessionOpener
 	qmiDataOpener                 qmiDataSessionOpener
 	nativeQMIRegistrationMu       sync.Mutex
 	nativeQMIRegistrationInFlight map[string]struct{}
+	nativeQMISIMRecoveryMu        sync.Mutex
+	nativeQMISIMRecoveries        map[string]time.Time
 
 	started      bool
 	devices      map[string]*managedDevice
@@ -145,8 +148,11 @@ func NewManager(options Options) (*Manager, error) {
 	if options.Discoverer == nil {
 		options.Discoverer = modem.NewSystemDiscoverer()
 	}
+	smsArrivals := make(chan struct{}, 1)
 	if options.Opener == nil {
-		options.Opener = modem.SerialOpener{}
+		options.Opener = modem.SerialOpener{
+			SessionOptions: modem.SessionOptions{OnURC: signalSMSArrival(smsArrivals)},
+		}
 	}
 	if options.CommandTimeout <= 0 {
 		options.CommandTimeout = 3 * time.Second
@@ -181,6 +187,7 @@ func NewManager(options Options) (*Manager, error) {
 		nativeQMIRegistrationInFlight: make(map[string]struct{}),
 		networkEventSubscribers:       make(map[chan string]struct{}),
 		deviceEventSubscribers:        make(map[chan DeviceLifecycleEvent]struct{}),
+		smsArrivals:                   smsArrivals,
 
 		devices:        make(map[string]*managedDevice),
 		ussdSessions:   make(map[string]ussdSession),

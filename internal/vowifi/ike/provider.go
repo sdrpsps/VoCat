@@ -601,6 +601,7 @@ func (provider *Provider) start(ctx context.Context, request vowifi.TunnelReques
 		UDPEncapsulation:   natDetected,
 		ProxyMode:          request.Proxy.Mode,
 		Relay:              relay,
+		Logger:             provider.config.Logger,
 	})
 	if err != nil {
 		_ = relay.CloseWithDelete(ctx)
@@ -648,7 +649,9 @@ func (provider *Provider) start(ctx context.Context, request vowifi.TunnelReques
 	return session, nil
 }
 
-const maxIKEInitCookieChallenges = 2
+// Permit a bounded cookie refresh when the gateway rotates its cookie secret.
+// Socket-level duplicate replies are filtered separately by the transport.
+const maxIKEInitCookieChallenges = 4
 
 func ikeInitCookie(payloads []payload) ([]byte, bool, error) {
 	var cookie []byte

@@ -166,6 +166,20 @@ docker run -d \
 
 该模式有意赋予 Vocat 对主机设备和网络栈的广泛访问权限，请仅在受信任的 Linux 主机上使用。自动发现会识别受支持的 Quectel USB 模组（USB 厂商 ID `2c7c`），以及通过 Linux WWAN 子系统暴露的 PCIe/MHI 模组；它不能识别任意模组布局。仅用 `--device` 映射单个节点，例如 `/dev/ttyUSB2`、`/dev/cdc-wdm0` 或 `/dev/wwan0qmi0`，会将容器限定在这些固定节点上，无法提供完整的多设备或热插拔发现。
 
+在 OpenWrt 主机上，fw4 的 input 链会丢弃来自其未管理接口的新连接，其中包括 Vocat 为每个 VoWiFi 会话创建的 TUN 接口。因此 Vocat 会用镜像自带的 `nft` 插入范围很窄的 `vocat-ims-*` 放行规则（仅 P-CSCF 到协商得到的内层地址）。缺少这些规则时 IMS 注册和发短信仍然正常，但收短信和来电会被拒绝。如果镜像自带的 `nft` 无法读取主机规则集，Vocat 会记录 `nft could not inspect the OpenWrt fw4 input chain`，此时可让 `VOCAT_NFT` 指向主机自己的 nft：
+
+```bash
+cat > /opt/vocat-host-nft <<'EOF'
+#!/bin/sh
+exec /host/lib/ld-musl-$(uname -m).so.1 --library-path /host/usr/lib:/host/lib /host/usr/sbin/nft "$@"
+EOF
+chmod 755 /opt/vocat-host-nft
+# 在上面的 docker run 命令中追加：
+#   -v /usr:/host/usr:ro -v /lib:/host/lib:ro \
+#   -v /opt/vocat-host-nft:/usr/local/bin/host-nft:ro \
+#   -e VOCAT_NFT=/usr/local/bin/host-nft
+```
+
 GHCR 镜像发布为 `linux/amd64` 与 `linux/arm64`。
 
 ### USB SIM 读卡器
@@ -208,9 +222,16 @@ Vocat 先从 `VOCAT_CONFIG` 读取可选的 JSON 配置文件，再应用 `VOCAT
 /switch <device> <iccid>
 /wfc <device> <status|on|off|reconnect>
 /sms <device> <number> <message>
+/ussd <device> <code>
+/ussd_reply <session> <input>
+/ussd_cancel <session>
 ```
 
 配置文件切换与短信提交使用一次性确认按钮。机器人不暴露 eSIM 下载、删除或重命名命令。
+
+网页终端与 Telegram 共用 USSD 路由。启用 WiFi Calling 时，请求使用 IMS/USSI；IMS 未就绪时会明确报错并提示等待注册，不会回退到蜂窝 AT+CUSD。关闭 WiFi Calling 时使用蜂窝 USSD。菜单回复与取消始终绑定原设备和会话。取消失败会返回错误并保留会话供重试；发送结果不确定时不会自动换通道重新提交。
+
+USSI 会话处理遵循 [3GPP TS 24.390](https://www.etsi.org/deliver/etsi_ts/124300_124399/124390/18.00.00_60/ts_124390v180000p.pdf)。BYE 失败时保留取消记录，但开始取消后禁止继续提交菜单输入（[RFC 3261 第 15.1.1 节](https://www.rfc-editor.org/rfc/rfc3261.html#section-15.1.1)）。
 
 ## 更新
 

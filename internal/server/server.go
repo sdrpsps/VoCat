@@ -71,7 +71,7 @@ type Server struct {
 	maxRequestBodyBytes       int64
 	startedAt                 time.Time
 	handler                   http.Handler
-	websheets                 *websheetManager
+	e911Sessions              *e911SessionManager
 	accessMu                  sync.RWMutex
 	access                    parsedAccessConfig
 	extensions                *extensions.Manager
@@ -139,7 +139,7 @@ func New(options Options) (*Server, error) {
 		secureCookies:       options.SecureCookies,
 		maxRequestBodyBytes: options.MaxRequestBodyBytes,
 		startedAt:           time.Now().UTC(),
-		websheets:           newWebsheetManager(),
+		e911Sessions:        newE911SessionManager(),
 		extensions:          options.Extensions,
 		exportProxy:         options.ExportProxy,
 		developerEnabled:    options.DeveloperEnabled,
@@ -169,7 +169,6 @@ func New(options Options) (*Server, error) {
 	mux.HandleFunc("/api/auth/logout", server.handleLogout)
 	mux.HandleFunc("/api", server.handleAPI)
 	mux.HandleFunc("/api/", server.handleAPI)
-	mux.HandleFunc("/websheets/", server.handleWebsheet)
 	mux.HandleFunc("/plugin-assets/", server.handlePluginAsset)
 	mux.HandleFunc("/", server.handleSPA)
 
@@ -195,6 +194,10 @@ type VoWiFiSMSSyncController interface {
 type VoWiFiMaintenanceController interface {
 	BeginMaintenance(string) error
 	EndMaintenance(string)
+}
+
+type VoWiFiUnregisterController interface {
+	Unregister(context.Context, string) error
 }
 
 type VoWiFiCallController interface {
@@ -588,9 +591,8 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
-		if strings.HasPrefix(r.URL.Path, "/websheets/") || strings.HasPrefix(r.URL.Path, "/plugin-assets/") {
-			// The self-hosted E911 websheet is embedded in an iframe by the SPA, so
-			// it must be frameable same-origin. Every other route stays DENY.
+		if strings.HasPrefix(r.URL.Path, "/plugin-assets/") {
+			// Local plugin frames must be frameable same-origin.
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 			w.Header().Set(
 				"Content-Security-Policy",
