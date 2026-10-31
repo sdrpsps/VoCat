@@ -249,6 +249,8 @@ Vocat reads an optional JSON configuration file from `VOCAT_CONFIG`, then applie
 | `VOCAT_SECURE_COOKIES` | `false` | Marks session cookies as secure when HTTPS is used. |
 | `VOCAT_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout. |
 | `VOCAT_MAX_REQUEST_BODY_BYTES` | `1048576` | Maximum API request body size. |
+| `VOCAT_MCP_ENABLED` | `true` | Serve the MCP endpoint at `/mcp` for AI agents. Set `false` to disable it. |
+| `VOCAT_PROBE_UNKNOWN_USB` | `false` | Opt in to probing unrecognized USB serial devices with AT commands. Probing changes serial settings and clears input; enable only when those ports are dedicated to modems. Verified modem identities are discovered automatically. JSON key: `probe_unknown_usb`. |
 | `VOCAT_REPO` | `MengMengCode/VoCat` | Trusted GitHub repository used by the self-updater, in `owner/name` form. |
 | `GITHUB_TOKEN` | empty | Optional GitHub token for private repositories or higher API limits. |
 
@@ -266,6 +268,55 @@ See [Pocket ID setup](docs/POCKET_ID.md) for configuration and deployment steps.
 Pocket ID must be configured before starting VoCat or running the Linux installer.
 
 Do not store Telegram tokens, SMTP passwords, webhook secrets, SIM credentials, or other private data in the repository. Configure them through the application settings or protected environment files.
+
+## API tokens and MCP
+
+Non-browser clients authenticate against the same `/api/...` endpoints with
+a bearer token instead of the browser's session cookie and CSRF flow:
+
+```bash
+vocat token create --read-only --ttl 720h ci-runner   # prints the token once
+curl -H "Authorization: Bearer vcat_..." http://127.0.0.1:7575/api/devices
+```
+
+`vocat token list` and `vocat token revoke <name>` manage the inventory.
+Tokens act with administrator privileges; a `--read-only` token may only
+issue `GET` requests (one documented exception: reading an SMS thread marks
+it read locally — the rule is "no hardware or network mutations"). Rotating
+the administrator password revokes every token. Create tokens after the
+first `bootstrap-admin`. Remote bearer clients also need a network access
+policy that admits their source address; the default `internal` mode only
+serves private networks.
+
+By default (`VOCAT_MCP_ENABLED=false` to disable), the same service
+exposes an MCP (Model Context Protocol) endpoint for AI agents at `http://<host>:7575/mcp` using
+the Streamable HTTP transport and bearer-token authentication. Tools cover
+device status, SMS threads and guarded sending, eSIM profile listing and
+switching, and WiFi Calling status/reconnect; sensitive operations (raw AT,
+eSIM download/delete, SIM PIN, network selection, system update) are not
+exposed, and tool output never includes IMSI, SIM PIN, or activation codes.
+A read-only token receives a tool list without the write tools. SMS sending
+follows the same blocked-destination policy and global hourly limit as the
+web UI and sends over the cellular AT path (the web UI's IMS-preferred
+routing when WiFi Calling is enabled stays web-side, and messages sent
+through MCP are not yet written to the web conversation history).
+
+Client configuration (Claude Code as the example):
+
+```json
+{
+  "mcpServers": {
+    "vocat": {
+      "type": "http",
+      "url": "http://192.168.1.10:7575/mcp",
+      "headers": { "Authorization": "Bearer vcat_..." }
+    }
+  }
+}
+```
+
+See [docs/API_MCP_DEVELOPMENT_PLAN.md](docs/API_MCP_DEVELOPMENT_PLAN.md) for
+the design record.
 
 ## Telegram bot
 

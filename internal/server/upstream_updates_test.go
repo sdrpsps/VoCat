@@ -165,7 +165,8 @@ func TestUpstreamNotificationsIgnoreDeviceScopeWithoutChangingIt(t *testing.T) {
 		for _, channel := range notificationChannels {
 			config := map[string]any{
 				"device_ids": scope, "urls": []string{"://invalid"}, "url": "://invalid",
-				"nickname": "/", "payload_template": "{", "smtp_host": "example.invalid",
+				"url_scopes": []any{map[string]any{"url": "://invalid", "device_ids": []string{"selected-device"}}},
+				"nickname":   "/", "payload_template": "{", "smtp_host": "example.invalid",
 			}
 			if err := sendUpstreamUpdateNotification(ctx, channel, config, upstreamUpdateNotification{Title: "update", Text: "release"}); err == nil {
 				t.Errorf("%s scope=%v: system notification was filtered instead of attempting delivery", channel, scope)

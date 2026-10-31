@@ -173,6 +173,7 @@ func sendUpstreamUpdateNotification(ctx context.Context, channel string, config 
 	// Keep the saved scope intact for SMS, calls and automatic tasks.
 	config = maps.Clone(config)
 	delete(config, "device_ids")
+	delete(config, "url_scopes")
 	switch channel {
 	case "telegram":
 		return sendTelegramTextNotification(ctx, config, "", message.Title+"\n"+message.Text)

@@ -6,7 +6,63 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestMigration29PreservesPocketIDAndSMSAndAddsAPITokens(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fork-v28.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	for version := 1; version <= 28; version++ {
+		for _, statement := range migrationStatements(version) {
+			if _, err := raw.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("schema %d: %v", version, err)
+			}
+		}
+	}
+	if _, err := raw.ExecContext(ctx, "PRAGMA user_version = 28"); err != nil {
+		t.Fatal(err)
+	}
+	legacy := &Store{db: raw}
+	if err := legacy.EnsureOIDCAdmin(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.CreateIdentitySession(ctx, 1, []byte{1}, []byte{2}, time.Now().Add(time.Hour), "https://id.example.test", "alice-id", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.SaveSMSRawRecord(ctx, SMSRawRecord{DeviceID: "ec20", Storage: "ME", Slot: 1, RawPDU: "AABB"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db := openTestStore(t, path)
+	session, err := db.SessionByTokenHash(ctx, []byte{1})
+	if err != nil || session.OIDCSubject != "alice-id" || session.OIDCIssuer != "https://id.example.test" {
+		t.Fatalf("Pocket ID session changed: %+v, %v", session, err)
+	}
+	records, err := db.ListSMSRawRecords(ctx, "ec20", 10)
+	if err != nil || len(records) != 1 || records[0].RawPDU != "AABB" {
+		t.Fatalf("SMS archive changed: %+v, %v", records, err)
+	}
+	hash := make([]byte, 32)
+	hash[0] = 7
+	if _, err := db.CreateAPIToken(ctx, "migrated", hash, true, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openTestStore(t, path)
+	token, err := reopened.APITokenByHash(ctx, hash)
+	if err != nil || token.Name != "migrated" || !token.ReadOnly {
+		t.Fatalf("API token lost after reopen: %+v, %v", token, err)
+	}
+}
 
 func TestMigration28PreservesPocketIDSessionsAndAddsSMSArchive(t *testing.T) {
 	ctx := context.Background()
